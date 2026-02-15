@@ -1,7 +1,11 @@
-const BASIC_AUTH_USER = process.env.BASIC_AUTH_USER || 'admin';
-const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS || '373536';
+const BASIC_AUTH_USER = process.env.BASIC_AUTH_USER;
+const BASIC_AUTH_PASS = process.env.BASIC_AUTH_PASS;
 
 function basicAuth(req, res, next) {
+  if (!BASIC_AUTH_USER || !BASIC_AUTH_PASS) {
+    return next();
+  }
+
   const header = req.headers.authorization;
 
   if (!header || !header.startsWith('Basic ')) {
