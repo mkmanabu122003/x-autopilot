@@ -7,35 +7,24 @@ const { postTweet } = require('../services/x-api');
 router.post('/', async (req, res) => {
   try {
     const { text, accountId, scheduledAt } = req.body;
-    if (!text) {
-      return res.status(400).json({ error: 'text is required' });
-    }
-    if (!accountId) {
-      return res.status(400).json({ error: 'accountId is required' });
-    }
+    if (!text) return res.status(400).json({ error: 'text is required' });
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
-    const db = getDb();
+    const sb = getDb();
 
     if (scheduledAt) {
-      const result = db.prepare(`
-        INSERT INTO my_posts (account_id, text, post_type, status, scheduled_at)
-        VALUES (?, ?, 'new', 'scheduled', ?)
-      `).run(accountId, text, scheduledAt);
-
-      return res.json({
-        id: result.lastInsertRowid,
-        status: 'scheduled',
-        scheduled_at: scheduledAt
-      });
+      const { data, error } = await sb.from('my_posts').insert({
+        account_id: accountId, text, post_type: 'new', status: 'scheduled', scheduled_at: scheduledAt
+      }).select('id').single();
+      if (error) throw error;
+      return res.json({ id: data.id, status: 'scheduled', scheduled_at: scheduledAt });
     }
 
     const xResult = await postTweet(text, { accountId });
-
-    db.prepare(`
-      INSERT INTO my_posts (account_id, tweet_id, text, post_type, status, posted_at)
-      VALUES (?, ?, ?, 'new', 'posted', CURRENT_TIMESTAMP)
-    `).run(accountId, xResult.data.id, text);
-
+    const { error } = await sb.from('my_posts').insert({
+      account_id: accountId, tweet_id: xResult.data.id, text, post_type: 'new', status: 'posted', posted_at: new Date().toISOString()
+    });
+    if (error) throw error;
     res.json({ tweet_id: xResult.data.id, status: 'posted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -46,35 +35,24 @@ router.post('/', async (req, res) => {
 router.post('/reply', async (req, res) => {
   try {
     const { text, targetTweetId, accountId, scheduledAt } = req.body;
-    if (!text || !targetTweetId) {
-      return res.status(400).json({ error: 'text and targetTweetId are required' });
-    }
-    if (!accountId) {
-      return res.status(400).json({ error: 'accountId is required' });
-    }
+    if (!text || !targetTweetId) return res.status(400).json({ error: 'text and targetTweetId are required' });
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
-    const db = getDb();
+    const sb = getDb();
 
     if (scheduledAt) {
-      const result = db.prepare(`
-        INSERT INTO my_posts (account_id, text, post_type, target_tweet_id, status, scheduled_at)
-        VALUES (?, ?, 'reply', ?, 'scheduled', ?)
-      `).run(accountId, text, targetTweetId, scheduledAt);
-
-      return res.json({
-        id: result.lastInsertRowid,
-        status: 'scheduled',
-        scheduled_at: scheduledAt
-      });
+      const { data, error } = await sb.from('my_posts').insert({
+        account_id: accountId, text, post_type: 'reply', target_tweet_id: targetTweetId, status: 'scheduled', scheduled_at: scheduledAt
+      }).select('id').single();
+      if (error) throw error;
+      return res.json({ id: data.id, status: 'scheduled', scheduled_at: scheduledAt });
     }
 
     const xResult = await postTweet(text, { accountId, replyToId: targetTweetId });
-
-    db.prepare(`
-      INSERT INTO my_posts (account_id, tweet_id, text, post_type, target_tweet_id, status, posted_at)
-      VALUES (?, ?, ?, 'reply', ?, 'posted', CURRENT_TIMESTAMP)
-    `).run(accountId, xResult.data.id, text, targetTweetId);
-
+    const { error } = await sb.from('my_posts').insert({
+      account_id: accountId, tweet_id: xResult.data.id, text, post_type: 'reply', target_tweet_id: targetTweetId, status: 'posted', posted_at: new Date().toISOString()
+    });
+    if (error) throw error;
     res.json({ tweet_id: xResult.data.id, status: 'posted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -85,35 +63,24 @@ router.post('/reply', async (req, res) => {
 router.post('/quote', async (req, res) => {
   try {
     const { text, targetTweetId, accountId, scheduledAt } = req.body;
-    if (!text || !targetTweetId) {
-      return res.status(400).json({ error: 'text and targetTweetId are required' });
-    }
-    if (!accountId) {
-      return res.status(400).json({ error: 'accountId is required' });
-    }
+    if (!text || !targetTweetId) return res.status(400).json({ error: 'text and targetTweetId are required' });
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
-    const db = getDb();
+    const sb = getDb();
 
     if (scheduledAt) {
-      const result = db.prepare(`
-        INSERT INTO my_posts (account_id, text, post_type, target_tweet_id, status, scheduled_at)
-        VALUES (?, ?, 'quote', ?, 'scheduled', ?)
-      `).run(accountId, text, targetTweetId, scheduledAt);
-
-      return res.json({
-        id: result.lastInsertRowid,
-        status: 'scheduled',
-        scheduled_at: scheduledAt
-      });
+      const { data, error } = await sb.from('my_posts').insert({
+        account_id: accountId, text, post_type: 'quote', target_tweet_id: targetTweetId, status: 'scheduled', scheduled_at: scheduledAt
+      }).select('id').single();
+      if (error) throw error;
+      return res.json({ id: data.id, status: 'scheduled', scheduled_at: scheduledAt });
     }
 
     const xResult = await postTweet(text, { accountId, quoteTweetId: targetTweetId });
-
-    db.prepare(`
-      INSERT INTO my_posts (account_id, tweet_id, text, post_type, target_tweet_id, status, posted_at)
-      VALUES (?, ?, ?, 'quote', ?, 'posted', CURRENT_TIMESTAMP)
-    `).run(accountId, xResult.data.id, text, targetTweetId);
-
+    const { error } = await sb.from('my_posts').insert({
+      account_id: accountId, tweet_id: xResult.data.id, text, post_type: 'quote', target_tweet_id: targetTweetId, status: 'posted', posted_at: new Date().toISOString()
+    });
+    if (error) throw error;
     res.json({ tweet_id: xResult.data.id, status: 'posted' });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -121,29 +88,31 @@ router.post('/quote', async (req, res) => {
 });
 
 // GET /api/tweets/scheduled - List scheduled posts
-router.get('/scheduled', (req, res) => {
+router.get('/scheduled', async (req, res) => {
   try {
-    const db = getDb();
+    const sb = getDb();
     const accountId = req.query.accountId;
 
-    let posts;
+    let query = sb.from('my_posts')
+      .select('*, x_accounts(display_name, handle, color)')
+      .eq('status', 'scheduled')
+      .order('scheduled_at', { ascending: true });
+
     if (accountId) {
-      posts = db.prepare(`
-        SELECT p.*, a.display_name as account_name, a.handle as account_handle, a.color as account_color
-        FROM my_posts p
-        LEFT JOIN x_accounts a ON p.account_id = a.id
-        WHERE p.status = 'scheduled' AND p.account_id = ?
-        ORDER BY p.scheduled_at ASC
-      `).all(accountId);
-    } else {
-      posts = db.prepare(`
-        SELECT p.*, a.display_name as account_name, a.handle as account_handle, a.color as account_color
-        FROM my_posts p
-        LEFT JOIN x_accounts a ON p.account_id = a.id
-        WHERE p.status = 'scheduled'
-        ORDER BY p.scheduled_at ASC
-      `).all();
+      query = query.eq('account_id', accountId);
     }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const posts = (data || []).map(p => ({
+      ...p,
+      account_name: p.x_accounts?.display_name,
+      account_handle: p.x_accounts?.handle,
+      account_color: p.x_accounts?.color,
+      x_accounts: undefined
+    }));
+
     res.json(posts);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -151,44 +120,39 @@ router.get('/scheduled', (req, res) => {
 });
 
 // POST /api/tweets/schedule - Schedule a post
-router.post('/schedule', (req, res) => {
+router.post('/schedule', async (req, res) => {
   try {
     const { text, postType, targetTweetId, accountId, scheduledAt } = req.body;
-    if (!text || !scheduledAt) {
-      return res.status(400).json({ error: 'text and scheduledAt are required' });
-    }
-    if (!accountId) {
-      return res.status(400).json({ error: 'accountId is required' });
-    }
+    if (!text || !scheduledAt) return res.status(400).json({ error: 'text and scheduledAt are required' });
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
-    const db = getDb();
-    const result = db.prepare(`
-      INSERT INTO my_posts (account_id, text, post_type, target_tweet_id, status, scheduled_at)
-      VALUES (?, ?, ?, ?, 'scheduled', ?)
-    `).run(accountId, text, postType || 'new', targetTweetId || null, scheduledAt);
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts').insert({
+      account_id: accountId, text, post_type: postType || 'new',
+      target_tweet_id: targetTweetId || null, status: 'scheduled', scheduled_at: scheduledAt
+    }).select('id').single();
+    if (error) throw error;
 
-    res.json({
-      id: result.lastInsertRowid,
-      status: 'scheduled',
-      scheduled_at: scheduledAt
-    });
+    res.json({ id: data.id, status: 'scheduled', scheduled_at: scheduledAt });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // DELETE /api/tweets/scheduled/:id - Cancel scheduled post
-router.delete('/scheduled/:id', (req, res) => {
+router.delete('/scheduled/:id', async (req, res) => {
   try {
-    const db = getDb();
-    const result = db.prepare(`
-      DELETE FROM my_posts WHERE id = ? AND status = 'scheduled'
-    `).run(req.params.id);
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('status', 'scheduled')
+      .select('id');
+    if (error) throw error;
 
-    if (result.changes === 0) {
+    if (!data || data.length === 0) {
       return res.status(404).json({ error: 'Scheduled post not found' });
     }
-
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -196,38 +160,28 @@ router.delete('/scheduled/:id', (req, res) => {
 });
 
 // PUT /api/tweets/scheduled/:id - Edit scheduled post
-router.put('/scheduled/:id', (req, res) => {
+router.put('/scheduled/:id', async (req, res) => {
   try {
     const { text, scheduledAt } = req.body;
-    const db = getDb();
+    const updates = {};
+    if (text) updates.text = text;
+    if (scheduledAt) updates.scheduled_at = scheduledAt;
 
-    const updates = [];
-    const params = [];
-
-    if (text) {
-      updates.push('text = ?');
-      params.push(text);
-    }
-    if (scheduledAt) {
-      updates.push('scheduled_at = ?');
-      params.push(scheduledAt);
-    }
-
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No fields to update' });
     }
 
-    params.push(req.params.id);
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts')
+      .update(updates)
+      .eq('id', req.params.id)
+      .eq('status', 'scheduled')
+      .select('id');
+    if (error) throw error;
 
-    const result = db.prepare(`
-      UPDATE my_posts SET ${updates.join(', ')}
-      WHERE id = ? AND status = 'scheduled'
-    `).run(...params);
-
-    if (result.changes === 0) {
+    if (!data || data.length === 0) {
       return res.status(404).json({ error: 'Scheduled post not found' });
     }
-
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });

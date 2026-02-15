@@ -6,145 +6,198 @@ function calculateEngagementRate(metrics) {
   return ((like_count + retweet_count + reply_count + quote_count) / impression_count) * 100;
 }
 
-function getDashboardSummary(accountId) {
-  const db = getDb();
+async function getDashboardSummary(accountId) {
+  const sb = getDb();
+  const now = new Date();
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const accountFilter = accountId ? 'AND account_id = ?' : '';
-  const accountParams = accountId ? [accountId] : [];
+  // Post count this month
+  let postQuery = sb.from('my_posts').select('*', { count: 'exact', head: true })
+    .eq('status', 'posted')
+    .gte('posted_at', startOfMonth);
+  if (accountId) postQuery = postQuery.eq('account_id', accountId);
+  const { count: postCount } = await postQuery;
 
-  const postCount = db.prepare(`
-    SELECT COUNT(*) as count FROM my_posts
-    WHERE status = 'posted'
-    AND posted_at >= date('now', 'start of month')
-    ${accountFilter}
-  `).get(...accountParams);
-
-  // Competitor data filtered by account
-  let competitorFilter = '';
+  // Competitor tweets this month for engagement rate
+  let competitorIds = null;
   if (accountId) {
-    competitorFilter = `AND ct.competitor_id IN (SELECT id FROM competitors WHERE account_id = ${Number(accountId)})`;
+    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    competitorIds = comps ? comps.map(c => c.id) : [];
   }
 
-  const avgEngagement = db.prepare(`
-    SELECT AVG(ct.engagement_rate) as avg_rate FROM competitor_tweets ct
-    WHERE ct.created_at_x >= date('now', 'start of month')
-    ${competitorFilter}
-  `).get();
+  let avgEngagementRate = 0;
+  let totalImpressions = 0;
 
-  const totalImpressions = db.prepare(`
-    SELECT SUM(ct.impression_count) as total FROM competitor_tweets ct
-    WHERE ct.created_at_x >= date('now', 'start of month')
-    ${competitorFilter}
-  `).get();
+  if (!competitorIds || competitorIds.length > 0) {
+    let engQuery = sb.from('competitor_tweets')
+      .select('engagement_rate, impression_count')
+      .gte('created_at_x', startOfMonth);
+    if (competitorIds && competitorIds.length > 0) {
+      engQuery = engQuery.in('competitor_id', competitorIds);
+    }
 
-  const apiUsage = db.prepare(`
-    SELECT SUM(cost_usd) as total_cost FROM api_usage_log
-    WHERE created_at >= date('now', 'start of month')
-    ${accountFilter}
-  `).get(...accountParams);
+    const { data: engData } = await engQuery;
+    if (engData && engData.length > 0) {
+      const sum = engData.reduce((acc, r) => acc + (r.engagement_rate || 0), 0);
+      avgEngagementRate = parseFloat((sum / engData.length).toFixed(2));
+      totalImpressions = engData.reduce((acc, r) => acc + (r.impression_count || 0), 0);
+    }
+  }
 
-  const budgetRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('monthly_budget_usd');
+  // API cost this month
+  let costQuery = sb.from('api_usage_log').select('cost_usd').gte('created_at', startOfMonth);
+  if (accountId) costQuery = costQuery.eq('account_id', accountId);
+  const { data: costData } = await costQuery;
+  const apiCost = costData ? costData.reduce((acc, r) => acc + (r.cost_usd || 0), 0) : 0;
+
+  const { data: budgetRow } = await sb.from('settings').select('value').eq('key', 'monthly_budget_usd').single();
   const budget = budgetRow ? parseFloat(budgetRow.value) : 33;
 
   return {
-    myPostCount: postCount.count || 0,
-    avgEngagementRate: avgEngagement.avg_rate ? parseFloat(avgEngagement.avg_rate.toFixed(2)) : 0,
-    totalImpressions: totalImpressions.total || 0,
-    apiCostUsd: apiUsage.total_cost ? parseFloat(apiUsage.total_cost.toFixed(4)) : 0,
+    myPostCount: postCount || 0,
+    avgEngagementRate,
+    totalImpressions,
+    apiCostUsd: parseFloat(apiCost.toFixed(4)),
     budgetUsd: budget
   };
 }
 
-function getTopPosts(limit = 20) {
-  const db = getDb();
-  return db.prepare(`
-    SELECT ct.*, c.handle, c.name as competitor_name
-    FROM competitor_tweets ct
-    JOIN competitors c ON ct.competitor_id = c.id
-    ORDER BY ct.engagement_rate DESC
-    LIMIT ?
-  `).all(limit);
+async function getTopPosts(limit = 20) {
+  const sb = getDb();
+  const { data, error } = await sb.from('competitor_tweets')
+    .select('*, competitors(handle, name)')
+    .order('engagement_rate', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+
+  return (data || []).map(t => ({
+    ...t,
+    handle: t.competitors?.handle,
+    competitor_name: t.competitors?.name,
+    competitors: undefined
+  }));
 }
 
-function getHourlyPerformance() {
-  const db = getDb();
-  return db.prepare(`
-    SELECT
-      CAST(strftime('%H', created_at_x) AS INTEGER) as hour,
-      AVG(engagement_rate) as avg_engagement_rate,
-      COUNT(*) as post_count
-    FROM competitor_tweets
-    WHERE created_at_x IS NOT NULL
-    GROUP BY hour
-    ORDER BY hour
-  `).all();
-}
+async function getHourlyPerformance() {
+  const sb = getDb();
+  const { data } = await sb.from('competitor_tweets')
+    .select('created_at_x, engagement_rate')
+    .not('created_at_x', 'is', null);
 
-function getWeeklyEngagement(weeks = 12) {
-  const db = getDb();
-  return db.prepare(`
-    SELECT
-      strftime('%Y-%W', created_at_x) as week,
-      AVG(engagement_rate) as avg_engagement_rate,
-      COUNT(*) as post_count
-    FROM competitor_tweets
-    WHERE created_at_x >= date('now', ?)
-    GROUP BY week
-    ORDER BY week
-  `).all(`-${weeks * 7} days`);
-}
+  if (!data || data.length === 0) return [];
 
-function getPostTypePerformance() {
-  const db = getDb();
-  return db.prepare(`
-    SELECT
-      CASE
-        WHEN has_media = 1 THEN 'media'
-        WHEN has_link = 1 THEN 'link'
-        WHEN is_thread = 1 THEN 'thread'
-        ELSE 'text'
-      END as post_type,
-      AVG(engagement_rate) as avg_engagement_rate,
-      COUNT(*) as post_count
-    FROM competitor_tweets
-    GROUP BY post_type
-    ORDER BY avg_engagement_rate DESC
-  `).all();
-}
-
-function getCompetitorContext(accountId) {
-  const db = getDb();
-
-  let topPostsQuery = `SELECT text, engagement_rate FROM competitor_tweets ORDER BY engagement_rate DESC LIMIT 5`;
-  if (accountId) {
-    topPostsQuery = `
-      SELECT ct.text, ct.engagement_rate FROM competitor_tweets ct
-      JOIN competitors c ON ct.competitor_id = c.id
-      WHERE c.account_id = ${Number(accountId)}
-      ORDER BY ct.engagement_rate DESC LIMIT 5
-    `;
+  const hourMap = {};
+  for (const row of data) {
+    const hour = new Date(row.created_at_x).getUTCHours();
+    if (!hourMap[hour]) hourMap[hour] = { total: 0, count: 0 };
+    hourMap[hour].total += row.engagement_rate || 0;
+    hourMap[hour].count++;
   }
 
-  const topPosts = db.prepare(topPostsQuery).all();
+  return Object.entries(hourMap)
+    .map(([hour, { total, count }]) => ({
+      hour: parseInt(hour),
+      avg_engagement_rate: parseFloat((total / count).toFixed(2)),
+      post_count: count
+    }))
+    .sort((a, b) => a.hour - b.hour);
+}
 
-  const hourlyData = getHourlyPerformance();
-  const bestHours = hourlyData
+async function getWeeklyEngagement(weeks = 12) {
+  const sb = getDb();
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - weeks * 7);
+
+  const { data } = await sb.from('competitor_tweets')
+    .select('created_at_x, engagement_rate')
+    .gte('created_at_x', cutoffDate.toISOString());
+
+  if (!data || data.length === 0) return [];
+
+  const weekMap = {};
+  for (const row of data) {
+    const d = new Date(row.created_at_x);
+    const year = d.getFullYear();
+    const jan1 = new Date(year, 0, 1);
+    const weekNum = Math.ceil(((d - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+    const weekKey = `${year}-${String(weekNum).padStart(2, '0')}`;
+
+    if (!weekMap[weekKey]) weekMap[weekKey] = { total: 0, count: 0 };
+    weekMap[weekKey].total += row.engagement_rate || 0;
+    weekMap[weekKey].count++;
+  }
+
+  return Object.entries(weekMap)
+    .map(([week, { total, count }]) => ({
+      week,
+      avg_engagement_rate: parseFloat((total / count).toFixed(2)),
+      post_count: count
+    }))
+    .sort((a, b) => a.week.localeCompare(b.week));
+}
+
+async function getPostTypePerformance() {
+  const sb = getDb();
+  const { data } = await sb.from('competitor_tweets')
+    .select('has_media, has_link, is_thread, engagement_rate');
+
+  if (!data || data.length === 0) return [];
+
+  const typeMap = {};
+  for (const row of data) {
+    let postType = 'text';
+    if (row.has_media) postType = 'media';
+    else if (row.has_link) postType = 'link';
+    else if (row.is_thread) postType = 'thread';
+
+    if (!typeMap[postType]) typeMap[postType] = { total: 0, count: 0 };
+    typeMap[postType].total += row.engagement_rate || 0;
+    typeMap[postType].count++;
+  }
+
+  return Object.entries(typeMap)
+    .map(([post_type, { total, count }]) => ({
+      post_type,
+      avg_engagement_rate: parseFloat((total / count).toFixed(2)),
+      post_count: count
+    }))
+    .sort((a, b) => b.avg_engagement_rate - a.avg_engagement_rate);
+}
+
+async function getCompetitorContext(accountId) {
+  const sb = getDb();
+
+  let topPostsQuery = sb.from('competitor_tweets')
+    .select('text, engagement_rate')
+    .order('engagement_rate', { ascending: false })
+    .limit(5);
+
+  if (accountId) {
+    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    const compIds = comps ? comps.map(c => c.id) : [];
+    if (compIds.length > 0) {
+      topPostsQuery = topPostsQuery.in('competitor_id', compIds);
+    }
+  }
+
+  const { data: topPosts } = await topPostsQuery;
+
+  const hourlyData = await getHourlyPerformance();
+  const bestHours = [...hourlyData]
     .sort((a, b) => b.avg_engagement_rate - a.avg_engagement_rate)
     .slice(0, 3);
 
-  const typeData = getPostTypePerformance();
+  const typeData = await getPostTypePerformance();
 
   let context = '競合で伸びている投稿の特徴:\n';
 
   if (typeData.length > 0) {
     context += `- 投稿タイプ別: ${typeData.map(t => `${t.post_type}(平均${t.avg_engagement_rate.toFixed(1)}%)`).join(', ')}\n`;
   }
-
   if (bestHours.length > 0) {
     context += `- 高エンゲージメント時間帯: ${bestHours.map(h => `${h.hour}時`).join(', ')}\n`;
   }
-
-  if (topPosts.length > 0) {
+  if (topPosts && topPosts.length > 0) {
     context += '- 上位ポスト例:\n';
     topPosts.forEach(p => {
       context += `  「${p.text.substring(0, 60)}...」(ER: ${p.engagement_rate.toFixed(1)}%)\n`;
