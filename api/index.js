@@ -15,8 +15,11 @@ const aiRouter = require('../server/routes/ai');
 const settingsRouter = require('../server/routes/settings');
 const accountsRouter = require('../server/routes/accounts');
 
+const basicAuth = require('../server/middleware/basicAuth');
+
 const app = express();
 
+app.use(basicAuth);
 app.use(cors());
 app.use(express.json());
 
