@@ -1,6 +1,7 @@
 import { useState, useCallback } from 'react';
 
 const API_BASE = '/api';
+const BASIC_AUTH = btoa('admin:373536');
 
 export function useAPI() {
   const [loading, setLoading] = useState(false);
@@ -11,7 +12,11 @@ export function useAPI() {
     setError(null);
     try {
       const response = await fetch(`${API_BASE}${path}`, {
-        headers: { 'Content-Type': 'application/json', ...options.headers },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Basic ${BASIC_AUTH}`,
+          ...options.headers
+        },
         ...options
       });
       const data = await response.json();

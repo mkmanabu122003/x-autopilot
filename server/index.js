@@ -13,9 +13,12 @@ const aiRouter = require('./routes/ai');
 const settingsRouter = require('./routes/settings');
 const accountsRouter = require('./routes/accounts');
 
+const basicAuth = require('./middleware/basicAuth');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+app.use(basicAuth);
 app.use(cors());
 app.use(express.json());
 
