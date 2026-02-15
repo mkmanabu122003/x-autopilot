@@ -11,6 +11,7 @@ const competitorsRouter = require('./routes/competitors');
 const analyticsRouter = require('./routes/analytics');
 const aiRouter = require('./routes/ai');
 const settingsRouter = require('./routes/settings');
+const accountsRouter = require('./routes/accounts');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -19,6 +20,7 @@ app.use(cors());
 app.use(express.json());
 
 // API routes
+app.use('/api/accounts', accountsRouter);
 app.use('/api/tweets', tweetsRouter);
 app.use('/api/competitors', competitorsRouter);
 app.use('/api/analytics', analyticsRouter);

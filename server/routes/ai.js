@@ -1,29 +1,43 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { getAIProvider } = require('../services/ai-provider');
+const { getAIProvider, getAvailableModels } = require('../services/ai-provider');
 const { getCompetitorContext } = require('../services/analytics');
 
 // POST /api/ai/generate - Generate tweet candidates
 router.post('/generate', async (req, res) => {
   try {
-    const { theme, postType, provider, includeCompetitorContext, customPrompt } = req.body;
+    const { theme, postType, provider, model, accountId, includeCompetitorContext, customPrompt } = req.body;
 
     if (!theme) {
       return res.status(400).json({ error: 'theme is required' });
     }
 
-    const db = getDb();
-    const providerName = provider ||
-      (db.prepare('SELECT value FROM settings WHERE key = ?').get('default_ai_provider')?.value) ||
-      'claude';
+    // Determine provider and model from account defaults or request
+    let providerName = provider;
+    let modelName = model;
+
+    if (accountId) {
+      const db = getDb();
+      const account = db.prepare('SELECT default_ai_provider, default_ai_model FROM x_accounts WHERE id = ?').get(accountId);
+      if (account) {
+        providerName = providerName || account.default_ai_provider;
+        modelName = modelName || account.default_ai_model;
+      }
+    }
+
+    if (!providerName) {
+      providerName = 'claude';
+    }
 
     const aiProvider = getAIProvider(providerName);
 
     const options = {
       postType: postType || 'new',
+      model: modelName,
+      accountId: accountId || null,
       customPrompt: customPrompt || '',
-      competitorContext: includeCompetitorContext ? getCompetitorContext() : ''
+      competitorContext: includeCompetitorContext ? getCompetitorContext(accountId) : ''
     };
 
     const result = await aiProvider.generateTweets(theme, options);
@@ -33,27 +47,32 @@ router.post('/generate', async (req, res) => {
   }
 });
 
+// GET /api/ai/models - List available models for dropdown selection
+router.get('/models', (req, res) => {
+  try {
+    res.json(getAvailableModels());
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/ai/providers - List available AI providers
 router.get('/providers', (req, res) => {
   try {
-    const db = getDb();
-    const defaultProvider = db.prepare('SELECT value FROM settings WHERE key = ?').get('default_ai_provider');
-    const claudeModel = db.prepare('SELECT value FROM settings WHERE key = ?').get('claude_model');
-    const geminiModel = db.prepare('SELECT value FROM settings WHERE key = ?').get('gemini_model');
+    const models = getAvailableModels();
 
     res.json({
-      default: defaultProvider ? defaultProvider.value : 'claude',
       providers: [
         {
           name: 'claude',
-          label: 'Claude (Anthropic)',
-          model: claudeModel ? claudeModel.value : 'claude-sonnet-4-20250514',
+          label: models.claude.label,
+          models: models.claude.models,
           available: !!process.env.CLAUDE_API_KEY
         },
         {
           name: 'gemini',
-          label: 'Gemini (Google)',
-          model: geminiModel ? geminiModel.value : 'gemini-2.0-flash',
+          label: models.gemini.label,
+          models: models.gemini.models,
           available: !!process.env.GEMINI_API_KEY
         }
       ]

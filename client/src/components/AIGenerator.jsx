@@ -1,20 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import { useAPI } from '../hooks/useAPI';
-import ProviderSwitch from './ProviderSwitch';
+import { useAccount } from '../contexts/AccountContext';
+import ModelSelect from './ModelSelect';
 
 export default function AIGenerator({ postType = 'new', onSelect, onClose }) {
   const [theme, setTheme] = useState('');
-  const [provider, setProvider] = useState('');
+  const [provider, setProvider] = useState('claude');
+  const [model, setModel] = useState('claude-sonnet-4-20250514');
   const [includeContext, setIncludeContext] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [resultInfo, setResultInfo] = useState(null);
-  const { post, get, loading, error } = useAPI();
+  const { post, loading, error } = useAPI();
+  const { currentAccount } = useAccount();
 
+  // Initialize from account defaults
   useEffect(() => {
-    get('/ai/providers').then(data => {
-      setProvider(data.default || 'claude');
-    }).catch(() => {});
-  }, [get]);
+    if (currentAccount) {
+      setProvider(currentAccount.default_ai_provider || 'claude');
+      setModel(currentAccount.default_ai_model || 'claude-sonnet-4-20250514');
+    }
+  }, [currentAccount]);
 
   const handleGenerate = async () => {
     if (!theme.trim()) return;
@@ -23,6 +28,8 @@ export default function AIGenerator({ postType = 'new', onSelect, onClose }) {
         theme,
         postType,
         provider,
+        model,
+        accountId: currentAccount?.id,
         includeCompetitorContext: includeContext
       });
       setCandidates(result.candidates || []);
@@ -56,10 +63,12 @@ export default function AIGenerator({ postType = 'new', onSelect, onClose }) {
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">AIプロバイダー</label>
-            <ProviderSwitch value={provider} onChange={setProvider} />
-          </div>
+          <ModelSelect
+            provider={provider}
+            model={model}
+            onProviderChange={setProvider}
+            onModelChange={setModel}
+          />
 
           <label className="flex items-center gap-2 text-sm text-gray-700">
             <input

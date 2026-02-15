@@ -1,5 +1,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
+import AccountSwitcher from './AccountSwitcher';
+import { useAccount } from '../contexts/AccountContext';
 
 const navItems = [
   { path: '/', label: 'ダッシュボード', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4' },
@@ -9,13 +11,33 @@ const navItems = [
 ];
 
 export default function Layout({ children }) {
+  const { currentAccount } = useAccount();
+  const borderColor = currentAccount?.color || '#E5E7EB';
+
   return (
     <div className="min-h-screen flex flex-col md:flex-row">
+      {/* Account color top bar (mobile) */}
+      {currentAccount && (
+        <div
+          className="md:hidden h-1 w-full flex-shrink-0"
+          style={{ backgroundColor: currentAccount.color }}
+        />
+      )}
+
       {/* Desktop sidebar */}
-      <nav className="hidden md:flex md:flex-col md:w-56 bg-white border-r border-gray-200 p-4">
-        <div className="mb-8">
+      <nav
+        className="hidden md:flex md:flex-col md:w-56 bg-white border-r-4 p-4"
+        style={{ borderRightColor: borderColor }}
+      >
+        <div className="mb-4">
           <h1 className="text-xl font-bold text-gray-900">X AutoPilot</h1>
         </div>
+
+        {/* Account Switcher */}
+        <div className="mb-6">
+          <AccountSwitcher />
+        </div>
+
         <div className="space-y-1">
           {navItems.map(item => (
             <NavLink
@@ -41,6 +63,10 @@ export default function Layout({ children }) {
       {/* Main content */}
       <main className="flex-1 pb-20 md:pb-0">
         <div className="max-w-6xl mx-auto p-4 md:p-6">
+          {/* Mobile account switcher */}
+          <div className="md:hidden mb-4">
+            <AccountSwitcher />
+          </div>
           {children}
         </div>
       </main>

@@ -11,7 +11,8 @@ const {
 // GET /api/analytics/dashboard - Dashboard summary data
 router.get('/dashboard', (req, res) => {
   try {
-    const summary = getDashboardSummary();
+    const accountId = req.query.accountId;
+    const summary = getDashboardSummary(accountId);
     res.json(summary);
   } catch (error) {
     res.status(500).json({ error: error.message });

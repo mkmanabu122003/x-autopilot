@@ -3,13 +3,22 @@ const { getDb } = require('../db/database');
 
 const API_BASE = 'https://api.twitter.com';
 
-function getOAuthHeader(method, url, params = {}) {
+function getAccountCredentials(accountId) {
+  const db = getDb();
+  const account = db.prepare('SELECT * FROM x_accounts WHERE id = ?').get(accountId);
+  if (!account) {
+    throw new Error(`Account not found: ${accountId}`);
+  }
+  return account;
+}
+
+function getOAuthHeader(method, url, credentials, params = {}) {
   const oauthParams = {
-    oauth_consumer_key: process.env.X_API_KEY,
+    oauth_consumer_key: credentials.api_key,
     oauth_nonce: crypto.randomBytes(16).toString('hex'),
     oauth_signature_method: 'HMAC-SHA1',
     oauth_timestamp: Math.floor(Date.now() / 1000).toString(),
-    oauth_token: process.env.X_ACCESS_TOKEN,
+    oauth_token: credentials.access_token,
     oauth_version: '1.0'
   };
 
@@ -25,7 +34,7 @@ function getOAuthHeader(method, url, params = {}) {
     encodeURIComponent(paramString)
   ].join('&');
 
-  const signingKey = `${encodeURIComponent(process.env.X_API_SECRET)}&${encodeURIComponent(process.env.X_ACCESS_TOKEN_SECRET)}`;
+  const signingKey = `${encodeURIComponent(credentials.api_secret)}&${encodeURIComponent(credentials.access_token_secret)}`;
   const signature = crypto.createHmac('sha1', signingKey).update(baseString).digest('base64');
 
   oauthParams.oauth_signature = signature;
@@ -38,25 +47,32 @@ function getOAuthHeader(method, url, params = {}) {
   return authHeader;
 }
 
-function logApiUsage(apiType, endpoint, costUsd) {
+function logApiUsage(apiType, endpoint, costUsd, accountId) {
   const db = getDb();
   db.prepare(
-    'INSERT INTO api_usage_log (api_type, endpoint, cost_usd) VALUES (?, ?, ?)'
-  ).run(apiType, endpoint, costUsd);
+    'INSERT INTO api_usage_log (account_id, api_type, endpoint, cost_usd) VALUES (?, ?, ?, ?)'
+  ).run(accountId || null, apiType, endpoint, costUsd);
 }
 
 async function postTweet(text, options = {}) {
+  const { accountId, replyToId, quoteTweetId } = options;
+
+  if (!accountId) {
+    throw new Error('accountId is required for posting');
+  }
+
+  const credentials = getAccountCredentials(accountId);
   const url = `${API_BASE}/2/tweets`;
   const body = { text };
 
-  if (options.replyToId) {
-    body.reply = { in_reply_to_tweet_id: options.replyToId };
+  if (replyToId) {
+    body.reply = { in_reply_to_tweet_id: replyToId };
   }
-  if (options.quoteTweetId) {
-    body.quote_tweet_id = options.quoteTweetId;
+  if (quoteTweetId) {
+    body.quote_tweet_id = quoteTweetId;
   }
 
-  const authHeader = getOAuthHeader('POST', url);
+  const authHeader = getOAuthHeader('POST', url, credentials);
 
   const response = await fetch(url, {
     method: 'POST',
@@ -72,20 +88,28 @@ async function postTweet(text, options = {}) {
     throw new Error(`X API error ${response.status}: ${JSON.stringify(error)}`);
   }
 
-  logApiUsage('x_write', 'POST /2/tweets', 0.01);
+  logApiUsage('x_write', 'POST /2/tweets', 0.01, accountId);
   return response.json();
 }
 
-async function getUserByHandle(handle) {
+async function getUserByHandle(handle, accountId) {
   const cleanHandle = handle.replace('@', '');
   const url = `${API_BASE}/2/users/by/username/${cleanHandle}`;
   const params = { 'user.fields': 'public_metrics,description,profile_image_url' };
   const queryString = new URLSearchParams(params).toString();
   const fullUrl = `${url}?${queryString}`;
 
+  let bearerToken;
+  if (accountId) {
+    const credentials = getAccountCredentials(accountId);
+    bearerToken = credentials.bearer_token || process.env.X_BEARER_TOKEN;
+  } else {
+    bearerToken = process.env.X_BEARER_TOKEN;
+  }
+
   const response = await fetch(fullUrl, {
     headers: {
-      'Authorization': `Bearer ${process.env.X_BEARER_TOKEN}`
+      'Authorization': `Bearer ${bearerToken}`
     }
   });
 
@@ -94,11 +118,11 @@ async function getUserByHandle(handle) {
     throw new Error(`X API error ${response.status}: ${JSON.stringify(error)}`);
   }
 
-  logApiUsage('x_user', 'GET /2/users/by/username', 0.01);
+  logApiUsage('x_user', 'GET /2/users/by/username', 0.01, accountId);
   return response.json();
 }
 
-async function getUserTweets(userId, maxResults = 100) {
+async function getUserTweets(userId, maxResults = 100, accountId) {
   const url = `${API_BASE}/2/users/${userId}/tweets`;
   const params = {
     'tweet.fields': 'public_metrics,created_at,entities,attachments',
@@ -107,9 +131,17 @@ async function getUserTweets(userId, maxResults = 100) {
   const queryString = new URLSearchParams(params).toString();
   const fullUrl = `${url}?${queryString}`;
 
+  let bearerToken;
+  if (accountId) {
+    const credentials = getAccountCredentials(accountId);
+    bearerToken = credentials.bearer_token || process.env.X_BEARER_TOKEN;
+  } else {
+    bearerToken = process.env.X_BEARER_TOKEN;
+  }
+
   const response = await fetch(fullUrl, {
     headers: {
-      'Authorization': `Bearer ${process.env.X_BEARER_TOKEN}`
+      'Authorization': `Bearer ${bearerToken}`
     }
   });
 
@@ -120,7 +152,7 @@ async function getUserTweets(userId, maxResults = 100) {
 
   const data = await response.json();
   const tweetCount = data.data ? data.data.length : 0;
-  logApiUsage('x_read', 'GET /2/users/:id/tweets', tweetCount * 0.005);
+  logApiUsage('x_read', 'GET /2/users/:id/tweets', tweetCount * 0.005, accountId);
   return data;
 }
 
@@ -128,5 +160,6 @@ module.exports = {
   postTweet,
   getUserByHandle,
   getUserTweets,
-  logApiUsage
+  logApiUsage,
+  getAccountCredentials
 };
