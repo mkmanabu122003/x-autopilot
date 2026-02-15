@@ -3,12 +3,14 @@ const router = express.Router();
 const { getDb } = require('../db/database');
 
 // GET /api/settings - Get all settings
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const db = getDb();
-    const rows = db.prepare('SELECT key, value FROM settings').all();
+    const sb = getDb();
+    const { data, error } = await sb.from('settings').select('key, value');
+    if (error) throw error;
+
     const settings = {};
-    for (const row of rows) {
+    for (const row of (data || [])) {
       settings[row.key] = row.value;
     }
     res.json(settings);
@@ -18,23 +20,19 @@ router.get('/', (req, res) => {
 });
 
 // PUT /api/settings - Update settings
-router.put('/', (req, res) => {
+router.put('/', async (req, res) => {
   try {
-    const db = getDb();
+    const sb = getDb();
     const updates = req.body;
 
-    const upsertStmt = db.prepare(`
-      INSERT INTO settings (key, value) VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `);
+    for (const [key, value] of Object.entries(updates)) {
+      const { error } = await sb.from('settings').upsert(
+        { key, value: String(value) },
+        { onConflict: 'key' }
+      );
+      if (error) throw error;
+    }
 
-    const upsertAll = db.transaction((entries) => {
-      for (const [key, value] of entries) {
-        upsertStmt.run(key, String(value));
-      }
-    });
-
-    upsertAll(Object.entries(updates));
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -42,36 +40,46 @@ router.put('/', (req, res) => {
 });
 
 // GET /api/usage - API usage summary
-router.get('/usage', (req, res) => {
+router.get('/usage', async (req, res) => {
   try {
-    const db = getDb();
+    const sb = getDb();
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    // This month's usage by type
-    const usageByType = db.prepare(`
-      SELECT api_type, COUNT(*) as call_count, SUM(cost_usd) as total_cost
-      FROM api_usage_log
-      WHERE created_at >= date('now', 'start of month')
-      GROUP BY api_type
-    `).all();
+    // Fetch all usage rows this month
+    const { data: usageRows, error: usageError } = await sb.from('api_usage_log')
+      .select('api_type, cost_usd, created_at')
+      .gte('created_at', startOfMonth);
+    if (usageError) throw usageError;
 
-    // Daily usage this month
-    const dailyUsage = db.prepare(`
-      SELECT date(created_at) as date, SUM(cost_usd) as daily_cost
-      FROM api_usage_log
-      WHERE created_at >= date('now', 'start of month')
-      GROUP BY date(created_at)
-      ORDER BY date
-    `).all();
+    // Aggregate by type and day in JS
+    const byTypeMap = {};
+    let totalCost = 0;
+    const dailyMap = {};
 
-    // Total this month
-    const totalRow = db.prepare(`
-      SELECT SUM(cost_usd) as total FROM api_usage_log
-      WHERE created_at >= date('now', 'start of month')
-    `).get();
+    for (const row of (usageRows || [])) {
+      // By type
+      if (!byTypeMap[row.api_type]) {
+        byTypeMap[row.api_type] = { api_type: row.api_type, call_count: 0, total_cost: 0 };
+      }
+      byTypeMap[row.api_type].call_count++;
+      byTypeMap[row.api_type].total_cost += row.cost_usd || 0;
 
-    const budgetRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('monthly_budget_usd');
+      totalCost += row.cost_usd || 0;
+
+      // Daily
+      const dateKey = row.created_at ? row.created_at.substring(0, 10) : 'unknown';
+      if (!dailyMap[dateKey]) dailyMap[dateKey] = 0;
+      dailyMap[dateKey] += row.cost_usd || 0;
+    }
+
+    const usageByType = Object.values(byTypeMap);
+    const dailyUsage = Object.entries(dailyMap)
+      .map(([date, daily_cost]) => ({ date, daily_cost }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const { data: budgetRow } = await sb.from('settings').select('value').eq('key', 'monthly_budget_usd').single();
     const budget = budgetRow ? parseFloat(budgetRow.value) : 33;
-    const totalCost = totalRow.total || 0;
 
     res.json({
       totalCostUsd: parseFloat(totalCost.toFixed(4)),

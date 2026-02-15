@@ -1,33 +1,33 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { getUserByHandle, getUserTweets } = require('../services/x-api');
+const { getUserByHandle } = require('../services/x-api');
 const { calculateEngagementRate } = require('../services/analytics');
 const { fetchAllCompetitorTweets } = require('../services/scheduler');
 
 // GET /api/competitors - List all competitors (optionally filtered by account)
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
-    const db = getDb();
+    const sb = getDb();
     const accountId = req.query.accountId;
 
-    let competitors;
+    let query = sb.from('competitors')
+      .select('*, competitor_tweets(count)')
+      .order('created_at', { ascending: false });
+
     if (accountId) {
-      competitors = db.prepare(`
-        SELECT c.*,
-          (SELECT COUNT(*) FROM competitor_tweets WHERE competitor_id = c.id) as tweet_count
-        FROM competitors c
-        WHERE c.account_id = ?
-        ORDER BY c.created_at DESC
-      `).all(accountId);
-    } else {
-      competitors = db.prepare(`
-        SELECT c.*,
-          (SELECT COUNT(*) FROM competitor_tweets WHERE competitor_id = c.id) as tweet_count
-        FROM competitors c
-        ORDER BY c.created_at DESC
-      `).all();
+      query = query.eq('account_id', accountId);
     }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const competitors = (data || []).map(c => ({
+      ...c,
+      tweet_count: c.competitor_tweets?.[0]?.count || 0,
+      competitor_tweets: undefined
+    }));
+
     res.json(competitors);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -38,24 +38,21 @@ router.get('/', (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { handle, accountId } = req.body;
-    if (!handle) {
-      return res.status(400).json({ error: 'handle is required' });
-    }
+    if (!handle) return res.status(400).json({ error: 'handle is required' });
 
-    const db = getDb();
+    const sb = getDb();
 
     // Check max accounts limit
-    const maxRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('competitor_max_accounts');
+    const { data: maxRow } = await sb.from('settings').select('value').eq('key', 'competitor_max_accounts').single();
     const maxAccounts = maxRow ? parseInt(maxRow.value) : 10;
 
-    let currentCount;
+    let countQuery = sb.from('competitors').select('*', { count: 'exact', head: true });
     if (accountId) {
-      currentCount = db.prepare('SELECT COUNT(*) as count FROM competitors WHERE account_id = ?').get(accountId);
-    } else {
-      currentCount = db.prepare('SELECT COUNT(*) as count FROM competitors').get();
+      countQuery = countQuery.eq('account_id', accountId);
     }
+    const { count: currentCount } = await countQuery;
 
-    if (currentCount.count >= maxAccounts) {
+    if (currentCount >= maxAccounts) {
       return res.status(400).json({
         error: `Maximum competitor accounts reached (${maxAccounts}). Increase the limit in settings.`
       });
@@ -63,47 +60,43 @@ router.post('/', async (req, res) => {
 
     // Look up user on X API
     const userData = await getUserByHandle(handle, accountId);
-    if (!userData.data) {
-      return res.status(404).json({ error: 'User not found on X' });
-    }
+    if (!userData.data) return res.status(404).json({ error: 'User not found on X' });
 
     const user = userData.data;
-    const result = db.prepare(`
-      INSERT INTO competitors (account_id, handle, name, user_id, followers_count)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(
-      accountId || null,
-      handle.replace('@', ''),
-      user.name,
-      user.id,
-      user.public_metrics ? user.public_metrics.followers_count : 0
-    );
-
-    res.json({
-      id: result.lastInsertRowid,
+    const { data, error } = await sb.from('competitors').insert({
+      account_id: accountId || null,
       handle: handle.replace('@', ''),
       name: user.name,
       user_id: user.id,
       followers_count: user.public_metrics ? user.public_metrics.followers_count : 0
-    });
-  } catch (error) {
-    if (error.message.includes('UNIQUE constraint')) {
-      return res.status(409).json({ error: 'Competitor already exists' });
+    }).select().single();
+
+    if (error) {
+      if (error.code === '23505') {
+        return res.status(409).json({ error: 'Competitor already exists' });
+      }
+      throw error;
     }
+
+    res.json(data);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // DELETE /api/competitors/:id - Remove a competitor
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    const db = getDb();
-    const result = db.prepare('DELETE FROM competitors WHERE id = ?').run(req.params.id);
+    const sb = getDb();
+    const { data, error } = await sb.from('competitors')
+      .delete()
+      .eq('id', req.params.id)
+      .select('id');
+    if (error) throw error;
 
-    if (result.changes === 0) {
+    if (!data || data.length === 0) {
       return res.status(404).json({ error: 'Competitor not found' });
     }
-
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -111,20 +104,20 @@ router.delete('/:id', (req, res) => {
 });
 
 // GET /api/competitors/:id/tweets - Get competitor's tweets
-router.get('/:id/tweets', (req, res) => {
+router.get('/:id/tweets', async (req, res) => {
   try {
-    const db = getDb();
+    const sb = getDb();
     const limit = parseInt(req.query.limit) || 50;
     const offset = parseInt(req.query.offset) || 0;
 
-    const tweets = db.prepare(`
-      SELECT * FROM competitor_tweets
-      WHERE competitor_id = ?
-      ORDER BY engagement_rate DESC
-      LIMIT ? OFFSET ?
-    `).all(req.params.id, limit, offset);
+    const { data, error } = await sb.from('competitor_tweets')
+      .select('*')
+      .eq('competitor_id', req.params.id)
+      .order('engagement_rate', { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw error;
 
-    res.json(tweets);
+    res.json(data || []);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

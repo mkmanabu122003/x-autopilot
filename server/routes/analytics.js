@@ -9,10 +9,10 @@ const {
 } = require('../services/analytics');
 
 // GET /api/analytics/dashboard - Dashboard summary data
-router.get('/dashboard', (req, res) => {
+router.get('/dashboard', async (req, res) => {
   try {
     const accountId = req.query.accountId;
-    const summary = getDashboardSummary(accountId);
+    const summary = await getDashboardSummary(accountId);
     res.json(summary);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -20,10 +20,10 @@ router.get('/dashboard', (req, res) => {
 });
 
 // GET /api/analytics/top-posts - Top performing posts
-router.get('/top-posts', (req, res) => {
+router.get('/top-posts', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 20;
-    const posts = getTopPosts(limit);
+    const posts = await getTopPosts(limit);
     res.json(posts);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -31,9 +31,9 @@ router.get('/top-posts', (req, res) => {
 });
 
 // GET /api/analytics/hourly - Hourly performance data
-router.get('/hourly', (req, res) => {
+router.get('/hourly', async (req, res) => {
   try {
-    const data = getHourlyPerformance();
+    const data = await getHourlyPerformance();
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -41,10 +41,10 @@ router.get('/hourly', (req, res) => {
 });
 
 // GET /api/analytics/weekly - Weekly engagement trends
-router.get('/weekly', (req, res) => {
+router.get('/weekly', async (req, res) => {
   try {
     const weeks = parseInt(req.query.weeks) || 12;
-    const data = getWeeklyEngagement(weeks);
+    const data = await getWeeklyEngagement(weeks);
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -52,9 +52,9 @@ router.get('/weekly', (req, res) => {
 });
 
 // GET /api/analytics/post-types - Performance by post type
-router.get('/post-types', (req, res) => {
+router.get('/post-types', async (req, res) => {
   try {
-    const data = getPostTypePerformance();
+    const data = await getPostTypePerformance();
     res.json(data);
   } catch (error) {
     res.status(500).json({ error: error.message });

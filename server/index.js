@@ -39,11 +39,13 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // Initialize DB and start server
-initDatabase();
-startScheduler();
+(async () => {
+  await initDatabase();
+  startScheduler();
 
-app.listen(PORT, () => {
-  console.log(`X AutoPilot server running on port ${PORT}`);
-});
+  app.listen(PORT, () => {
+    console.log(`X AutoPilot server running on port ${PORT}`);
+  });
+})();
 
 module.exports = app;

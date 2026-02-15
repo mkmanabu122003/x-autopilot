@@ -12,13 +12,13 @@
     "db:migrate": "node server/db/migrate.js"
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
+    "@supabase/supabase-js": "^2.95.3",
     "cors": "^2.8.5",
+    "crypto": "^1.0.1",
     "dotenv": "^16.4.5",
     "express": "^4.21.0",
     "node-cron": "^3.0.3",
-    "oauth-1.0a": "^2.2.6",
-    "crypto": "^1.0.1"
+    "oauth-1.0a": "^2.2.6"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

@@ -1,15 +1,22 @@
 const crypto = require('crypto');
 const { getDb } = require('../db/database');
+const { decrypt } = require('../utils/crypto');
 
 const API_BASE = 'https://api.twitter.com';
 
-function getAccountCredentials(accountId) {
-  const db = getDb();
-  const account = db.prepare('SELECT * FROM x_accounts WHERE id = ?').get(accountId);
-  if (!account) {
-    throw new Error(`Account not found: ${accountId}`);
-  }
-  return account;
+async function getAccountCredentials(accountId) {
+  const sb = getDb();
+  const { data, error } = await sb.from('x_accounts').select('*').eq('id', accountId).single();
+  if (error || !data) throw new Error(`Account not found: ${accountId}`);
+
+  return {
+    ...data,
+    api_key: decrypt(data.api_key),
+    api_secret: decrypt(data.api_secret),
+    access_token: decrypt(data.access_token),
+    access_token_secret: decrypt(data.access_token_secret),
+    bearer_token: decrypt(data.bearer_token),
+  };
 }
 
 function getOAuthHeader(method, url, credentials, params = {}) {
@@ -39,47 +46,34 @@ function getOAuthHeader(method, url, credentials, params = {}) {
 
   oauthParams.oauth_signature = signature;
 
-  const authHeader = 'OAuth ' + Object.keys(oauthParams)
+  return 'OAuth ' + Object.keys(oauthParams)
     .sort()
     .map(k => `${encodeURIComponent(k)}="${encodeURIComponent(oauthParams[k])}"`)
     .join(', ');
-
-  return authHeader;
 }
 
-function logApiUsage(apiType, endpoint, costUsd, accountId) {
-  const db = getDb();
-  db.prepare(
-    'INSERT INTO api_usage_log (account_id, api_type, endpoint, cost_usd) VALUES (?, ?, ?, ?)'
-  ).run(accountId || null, apiType, endpoint, costUsd);
+async function logApiUsage(apiType, endpoint, costUsd, accountId) {
+  const sb = getDb();
+  await sb.from('api_usage_log').insert({
+    account_id: accountId || null, api_type: apiType, endpoint, cost_usd: costUsd
+  });
 }
 
 async function postTweet(text, options = {}) {
   const { accountId, replyToId, quoteTweetId } = options;
+  if (!accountId) throw new Error('accountId is required for posting');
 
-  if (!accountId) {
-    throw new Error('accountId is required for posting');
-  }
-
-  const credentials = getAccountCredentials(accountId);
+  const credentials = await getAccountCredentials(accountId);
   const url = `${API_BASE}/2/tweets`;
   const body = { text };
-
-  if (replyToId) {
-    body.reply = { in_reply_to_tweet_id: replyToId };
-  }
-  if (quoteTweetId) {
-    body.quote_tweet_id = quoteTweetId;
-  }
+  if (replyToId) body.reply = { in_reply_to_tweet_id: replyToId };
+  if (quoteTweetId) body.quote_tweet_id = quoteTweetId;
 
   const authHeader = getOAuthHeader('POST', url, credentials);
 
   const response = await fetch(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': authHeader
-    },
+    headers: { 'Content-Type': 'application/json', 'Authorization': authHeader },
     body: JSON.stringify(body)
   });
 
@@ -88,31 +82,20 @@ async function postTweet(text, options = {}) {
     throw new Error(`X API error ${response.status}: ${JSON.stringify(error)}`);
   }
 
-  logApiUsage('x_write', 'POST /2/tweets', 0.01, accountId);
+  await logApiUsage('x_write', 'POST /2/tweets', 0.01, accountId);
   return response.json();
 }
 
 async function getUserByHandle(handle, accountId) {
+  if (!accountId) throw new Error('accountId is required');
+  const credentials = await getAccountCredentials(accountId);
+  if (!credentials.bearer_token) throw new Error('Bearer token is not set for this account');
+
   const cleanHandle = handle.replace('@', '');
-  const url = `${API_BASE}/2/users/by/username/${cleanHandle}`;
-  const params = { 'user.fields': 'public_metrics,description,profile_image_url' };
-  const queryString = new URLSearchParams(params).toString();
-  const fullUrl = `${url}?${queryString}`;
-
-  if (!accountId) {
-    throw new Error('accountId is required');
-  }
-
-  const credentials = getAccountCredentials(accountId);
-  const bearerToken = credentials.bearer_token;
-  if (!bearerToken) {
-    throw new Error('Bearer token is not set for this account');
-  }
+  const fullUrl = `${API_BASE}/2/users/by/username/${cleanHandle}?${new URLSearchParams({ 'user.fields': 'public_metrics,description,profile_image_url' })}`;
 
   const response = await fetch(fullUrl, {
-    headers: {
-      'Authorization': `Bearer ${bearerToken}`
-    }
+    headers: { 'Authorization': `Bearer ${credentials.bearer_token}` }
   });
 
   if (!response.ok) {
@@ -120,33 +103,22 @@ async function getUserByHandle(handle, accountId) {
     throw new Error(`X API error ${response.status}: ${JSON.stringify(error)}`);
   }
 
-  logApiUsage('x_user', 'GET /2/users/by/username', 0.01, accountId);
+  await logApiUsage('x_user', 'GET /2/users/by/username', 0.01, accountId);
   return response.json();
 }
 
 async function getUserTweets(userId, maxResults = 100, accountId) {
-  const url = `${API_BASE}/2/users/${userId}/tweets`;
-  const params = {
+  if (!accountId) throw new Error('accountId is required');
+  const credentials = await getAccountCredentials(accountId);
+  if (!credentials.bearer_token) throw new Error('Bearer token is not set for this account');
+
+  const fullUrl = `${API_BASE}/2/users/${userId}/tweets?${new URLSearchParams({
     'tweet.fields': 'public_metrics,created_at,entities,attachments',
     'max_results': String(Math.min(maxResults, 100))
-  };
-  const queryString = new URLSearchParams(params).toString();
-  const fullUrl = `${url}?${queryString}`;
-
-  if (!accountId) {
-    throw new Error('accountId is required');
-  }
-
-  const credentials = getAccountCredentials(accountId);
-  const bearerToken = credentials.bearer_token;
-  if (!bearerToken) {
-    throw new Error('Bearer token is not set for this account');
-  }
+  })}`;
 
   const response = await fetch(fullUrl, {
-    headers: {
-      'Authorization': `Bearer ${bearerToken}`
-    }
+    headers: { 'Authorization': `Bearer ${credentials.bearer_token}` }
   });
 
   if (!response.ok) {
@@ -156,14 +128,8 @@ async function getUserTweets(userId, maxResults = 100, accountId) {
 
   const data = await response.json();
   const tweetCount = data.data ? data.data.length : 0;
-  logApiUsage('x_read', 'GET /2/users/:id/tweets', tweetCount * 0.005, accountId);
+  await logApiUsage('x_read', 'GET /2/users/:id/tweets', tweetCount * 0.005, accountId);
   return data;
 }
 
-module.exports = {
-  postTweet,
-  getUserByHandle,
-  getUserTweets,
-  logApiUsage,
-  getAccountCredentials
-};
+module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials };

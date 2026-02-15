@@ -19,18 +19,19 @@ function startScheduler() {
 }
 
 async function processScheduledPosts() {
-  const db = getDb();
+  const sb = getDb();
   const now = new Date().toISOString();
 
-  const posts = db.prepare(`
-    SELECT * FROM my_posts
-    WHERE status = 'scheduled'
-    AND scheduled_at <= ?
-  `).all(now);
+  const { data: posts, error } = await sb.from('my_posts')
+    .select('*')
+    .eq('status', 'scheduled')
+    .lte('scheduled_at', now);
+
+  if (error || !posts) return;
 
   for (const post of posts) {
     try {
-      const options = {};
+      const options = { accountId: post.account_id };
       if (post.post_type === 'reply' && post.target_tweet_id) {
         options.replyToId = post.target_tweet_id;
       }
@@ -40,30 +41,30 @@ async function processScheduledPosts() {
 
       const result = await postTweet(post.text, options);
 
-      db.prepare(`
-        UPDATE my_posts SET status = 'posted', tweet_id = ?, posted_at = CURRENT_TIMESTAMP
-        WHERE id = ?
-      `).run(result.data.id, post.id);
+      await sb.from('my_posts')
+        .update({ status: 'posted', tweet_id: result.data.id, posted_at: new Date().toISOString() })
+        .eq('id', post.id);
 
       console.log(`Scheduled post ${post.id} published: ${result.data.id}`);
-    } catch (error) {
-      db.prepare(`
-        UPDATE my_posts SET status = 'failed'
-        WHERE id = ?
-      `).run(post.id);
+    } catch (err) {
+      await sb.from('my_posts')
+        .update({ status: 'failed' })
+        .eq('id', post.id);
 
-      console.error(`Failed to publish scheduled post ${post.id}:`, error.message);
+      console.error(`Failed to publish scheduled post ${post.id}:`, err.message);
     }
   }
 }
 
 async function fetchCompetitorTweetsIfDue() {
-  const db = getDb();
+  const sb = getDb();
 
-  const intervalRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('competitor_fetch_interval');
+  const { data: intervalRow } = await sb.from('settings')
+    .select('value')
+    .eq('key', 'competitor_fetch_interval')
+    .single();
   const interval = intervalRow ? intervalRow.value : 'weekly';
 
-  // Determine if we should fetch today
   const dayOfWeek = new Date().getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
   let shouldFetch = false;
 
@@ -74,74 +75,68 @@ async function fetchCompetitorTweetsIfDue() {
     case 'weekly':
       shouldFetch = dayOfWeek === 1; // Monday
       break;
-    case 'biweekly':
+    case 'biweekly': {
       const weekNum = Math.ceil(new Date().getDate() / 7);
       shouldFetch = dayOfWeek === 1 && weekNum % 2 === 1;
       break;
+    }
   }
 
   if (!shouldFetch) return;
-
   await fetchAllCompetitorTweets();
 }
 
 async function fetchAllCompetitorTweets() {
-  const db = getDb();
-  const competitors = db.prepare('SELECT * FROM competitors').all();
+  const sb = getDb();
+  const { data: competitors } = await sb.from('competitors').select('*');
+
+  if (!competitors) return;
 
   for (const competitor of competitors) {
     try {
-      const result = await getUserTweets(competitor.user_id);
-
+      const result = await getUserTweets(competitor.user_id, 100, competitor.account_id);
       if (!result.data) continue;
 
-      const insertStmt = db.prepare(`
-        INSERT OR IGNORE INTO competitor_tweets
-        (competitor_id, tweet_id, text, created_at_x, like_count, retweet_count,
-         reply_count, impression_count, quote_count, bookmark_count,
-         engagement_rate, has_media, has_link, is_thread)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
+      const rows = result.data.map(tweet => {
+        const metrics = tweet.public_metrics || {};
+        const engRate = calculateEngagementRate({
+          like_count: metrics.like_count || 0,
+          retweet_count: metrics.retweet_count || 0,
+          reply_count: metrics.reply_count || 0,
+          quote_count: metrics.quote_count || 0,
+          impression_count: metrics.impression_count || 0
+        });
 
-      const insertAll = db.transaction((tweets) => {
-        for (const tweet of tweets) {
-          const metrics = tweet.public_metrics || {};
-          const engRate = calculateEngagementRate({
-            like_count: metrics.like_count || 0,
-            retweet_count: metrics.retweet_count || 0,
-            reply_count: metrics.reply_count || 0,
-            quote_count: metrics.quote_count || 0,
-            impression_count: metrics.impression_count || 0
-          });
+        const hasMedia = !!(tweet.attachments && tweet.attachments.media_keys);
+        const hasLink = !!(tweet.entities && tweet.entities.urls && tweet.entities.urls.length > 0);
+        const isThread = !!(tweet.entities && tweet.entities.mentions && tweet.text.startsWith('@'));
 
-          const hasMedia = !!(tweet.attachments && tweet.attachments.media_keys);
-          const hasLink = !!(tweet.entities && tweet.entities.urls && tweet.entities.urls.length > 0);
-          const isThread = !!(tweet.entities && tweet.entities.mentions &&
-            tweet.text.startsWith('@'));
-
-          insertStmt.run(
-            competitor.id,
-            tweet.id,
-            tweet.text,
-            tweet.created_at,
-            metrics.like_count || 0,
-            metrics.retweet_count || 0,
-            metrics.reply_count || 0,
-            metrics.impression_count || 0,
-            metrics.quote_count || 0,
-            metrics.bookmark_count || 0,
-            engRate,
-            hasMedia ? 1 : 0,
-            hasLink ? 1 : 0,
-            isThread ? 1 : 0
-          );
-        }
+        return {
+          competitor_id: competitor.id,
+          tweet_id: tweet.id,
+          text: tweet.text,
+          created_at_x: tweet.created_at,
+          like_count: metrics.like_count || 0,
+          retweet_count: metrics.retweet_count || 0,
+          reply_count: metrics.reply_count || 0,
+          impression_count: metrics.impression_count || 0,
+          quote_count: metrics.quote_count || 0,
+          bookmark_count: metrics.bookmark_count || 0,
+          engagement_rate: engRate,
+          has_media: hasMedia,
+          has_link: hasLink,
+          is_thread: isThread
+        };
       });
 
-      insertAll(result.data);
-      console.log(`Fetched ${result.data.length} tweets for @${competitor.handle}`);
-    } catch (error) {
-      console.error(`Failed to fetch tweets for @${competitor.handle}:`, error.message);
+      // Upsert to avoid duplicates (tweet_id is unique)
+      const { error } = await sb.from('competitor_tweets')
+        .upsert(rows, { onConflict: 'tweet_id', ignoreDuplicates: true });
+
+      if (error) console.error(`Error inserting tweets for @${competitor.handle}:`, error.message);
+      else console.log(`Fetched ${result.data.length} tweets for @${competitor.handle}`);
+    } catch (err) {
+      console.error(`Failed to fetch tweets for @${competitor.handle}:`, err.message);
     }
   }
 }
