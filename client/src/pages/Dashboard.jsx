@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAPI } from '../hooks/useAPI';
+import { useAccount } from '../contexts/AccountContext';
 import { formatNumber, formatCurrency, formatPercent } from '../utils/formatters';
 import StatsCard from '../components/StatsCard';
 import EngagementChart from '../components/EngagementChart';
@@ -11,11 +12,13 @@ import TopPosts from '../components/TopPosts';
 export default function Dashboard() {
   const [summary, setSummary] = useState(null);
   const { get } = useAPI();
+  const { currentAccount } = useAccount();
   const navigate = useNavigate();
 
   useEffect(() => {
-    get('/analytics/dashboard').then(setSummary).catch(() => {});
-  }, [get]);
+    const params = currentAccount ? `?accountId=${currentAccount.id}` : '';
+    get(`/analytics/dashboard${params}`).then(setSummary).catch(() => {});
+  }, [get, currentAccount]);
 
   const handleQuote = (post) => {
     navigate('/post', { state: { mode: 'quote', targetTweetId: post.tweet_id } });

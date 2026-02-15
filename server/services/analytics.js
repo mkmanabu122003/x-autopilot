@@ -6,33 +6,42 @@ function calculateEngagementRate(metrics) {
   return ((like_count + retweet_count + reply_count + quote_count) / impression_count) * 100;
 }
 
-function getDashboardSummary() {
+function getDashboardSummary(accountId) {
   const db = getDb();
 
-  // Current month's post count
+  const accountFilter = accountId ? 'AND account_id = ?' : '';
+  const accountParams = accountId ? [accountId] : [];
+
   const postCount = db.prepare(`
     SELECT COUNT(*) as count FROM my_posts
     WHERE status = 'posted'
     AND posted_at >= date('now', 'start of month')
-  `).get();
+    ${accountFilter}
+  `).get(...accountParams);
 
-  // Average engagement rate of competitor tweets this month
+  // Competitor data filtered by account
+  let competitorFilter = '';
+  if (accountId) {
+    competitorFilter = `AND ct.competitor_id IN (SELECT id FROM competitors WHERE account_id = ${Number(accountId)})`;
+  }
+
   const avgEngagement = db.prepare(`
-    SELECT AVG(engagement_rate) as avg_rate FROM competitor_tweets
-    WHERE created_at_x >= date('now', 'start of month')
+    SELECT AVG(ct.engagement_rate) as avg_rate FROM competitor_tweets ct
+    WHERE ct.created_at_x >= date('now', 'start of month')
+    ${competitorFilter}
   `).get();
 
-  // Total impressions this month
   const totalImpressions = db.prepare(`
-    SELECT SUM(impression_count) as total FROM competitor_tweets
-    WHERE created_at_x >= date('now', 'start of month')
+    SELECT SUM(ct.impression_count) as total FROM competitor_tweets ct
+    WHERE ct.created_at_x >= date('now', 'start of month')
+    ${competitorFilter}
   `).get();
 
-  // API usage this month
   const apiUsage = db.prepare(`
     SELECT SUM(cost_usd) as total_cost FROM api_usage_log
     WHERE created_at >= date('now', 'start of month')
-  `).get();
+    ${accountFilter}
+  `).get(...accountParams);
 
   const budgetRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('monthly_budget_usd');
   const budget = budgetRow ? parseFloat(budgetRow.value) : 33;
@@ -103,13 +112,20 @@ function getPostTypePerformance() {
   `).all();
 }
 
-function getCompetitorContext() {
+function getCompetitorContext(accountId) {
   const db = getDb();
-  const topPosts = db.prepare(`
-    SELECT text, engagement_rate FROM competitor_tweets
-    ORDER BY engagement_rate DESC
-    LIMIT 5
-  `).all();
+
+  let topPostsQuery = `SELECT text, engagement_rate FROM competitor_tweets ORDER BY engagement_rate DESC LIMIT 5`;
+  if (accountId) {
+    topPostsQuery = `
+      SELECT ct.text, ct.engagement_rate FROM competitor_tweets ct
+      JOIN competitors c ON ct.competitor_id = c.id
+      WHERE c.account_id = ${Number(accountId)}
+      ORDER BY ct.engagement_rate DESC LIMIT 5
+    `;
+  }
+
+  const topPosts = db.prepare(topPostsQuery).all();
 
   const hourlyData = getHourlyPerformance();
   const bestHours = hourlyData

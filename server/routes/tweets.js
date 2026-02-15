@@ -6,19 +6,21 @@ const { postTweet } = require('../services/x-api');
 // POST /api/tweets - New tweet
 router.post('/', async (req, res) => {
   try {
-    const { text, scheduledAt } = req.body;
+    const { text, accountId, scheduledAt } = req.body;
     if (!text) {
       return res.status(400).json({ error: 'text is required' });
+    }
+    if (!accountId) {
+      return res.status(400).json({ error: 'accountId is required' });
     }
 
     const db = getDb();
 
     if (scheduledAt) {
-      // Schedule for later
       const result = db.prepare(`
-        INSERT INTO my_posts (text, post_type, status, scheduled_at)
-        VALUES (?, 'new', 'scheduled', ?)
-      `).run(text, scheduledAt);
+        INSERT INTO my_posts (account_id, text, post_type, status, scheduled_at)
+        VALUES (?, ?, 'new', 'scheduled', ?)
+      `).run(accountId, text, scheduledAt);
 
       return res.json({
         id: result.lastInsertRowid,
@@ -27,13 +29,12 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Post immediately
-    const xResult = await postTweet(text);
+    const xResult = await postTweet(text, { accountId });
 
     db.prepare(`
-      INSERT INTO my_posts (tweet_id, text, post_type, status, posted_at)
-      VALUES (?, ?, 'new', 'posted', CURRENT_TIMESTAMP)
-    `).run(xResult.data.id, text);
+      INSERT INTO my_posts (account_id, tweet_id, text, post_type, status, posted_at)
+      VALUES (?, ?, ?, 'new', 'posted', CURRENT_TIMESTAMP)
+    `).run(accountId, xResult.data.id, text);
 
     res.json({ tweet_id: xResult.data.id, status: 'posted' });
   } catch (error) {
@@ -44,18 +45,21 @@ router.post('/', async (req, res) => {
 // POST /api/tweets/reply - Reply to a tweet
 router.post('/reply', async (req, res) => {
   try {
-    const { text, targetTweetId, scheduledAt } = req.body;
+    const { text, targetTweetId, accountId, scheduledAt } = req.body;
     if (!text || !targetTweetId) {
       return res.status(400).json({ error: 'text and targetTweetId are required' });
+    }
+    if (!accountId) {
+      return res.status(400).json({ error: 'accountId is required' });
     }
 
     const db = getDb();
 
     if (scheduledAt) {
       const result = db.prepare(`
-        INSERT INTO my_posts (text, post_type, target_tweet_id, status, scheduled_at)
-        VALUES (?, 'reply', ?, 'scheduled', ?)
-      `).run(text, targetTweetId, scheduledAt);
+        INSERT INTO my_posts (account_id, text, post_type, target_tweet_id, status, scheduled_at)
+        VALUES (?, ?, 'reply', ?, 'scheduled', ?)
+      `).run(accountId, text, targetTweetId, scheduledAt);
 
       return res.json({
         id: result.lastInsertRowid,
@@ -64,12 +68,12 @@ router.post('/reply', async (req, res) => {
       });
     }
 
-    const xResult = await postTweet(text, { replyToId: targetTweetId });
+    const xResult = await postTweet(text, { accountId, replyToId: targetTweetId });
 
     db.prepare(`
-      INSERT INTO my_posts (tweet_id, text, post_type, target_tweet_id, status, posted_at)
-      VALUES (?, ?, 'reply', ?, 'posted', CURRENT_TIMESTAMP)
-    `).run(xResult.data.id, text, targetTweetId);
+      INSERT INTO my_posts (account_id, tweet_id, text, post_type, target_tweet_id, status, posted_at)
+      VALUES (?, ?, ?, 'reply', ?, 'posted', CURRENT_TIMESTAMP)
+    `).run(accountId, xResult.data.id, text, targetTweetId);
 
     res.json({ tweet_id: xResult.data.id, status: 'posted' });
   } catch (error) {
@@ -80,18 +84,21 @@ router.post('/reply', async (req, res) => {
 // POST /api/tweets/quote - Quote retweet
 router.post('/quote', async (req, res) => {
   try {
-    const { text, targetTweetId, scheduledAt } = req.body;
+    const { text, targetTweetId, accountId, scheduledAt } = req.body;
     if (!text || !targetTweetId) {
       return res.status(400).json({ error: 'text and targetTweetId are required' });
+    }
+    if (!accountId) {
+      return res.status(400).json({ error: 'accountId is required' });
     }
 
     const db = getDb();
 
     if (scheduledAt) {
       const result = db.prepare(`
-        INSERT INTO my_posts (text, post_type, target_tweet_id, status, scheduled_at)
-        VALUES (?, 'quote', ?, 'scheduled', ?)
-      `).run(text, targetTweetId, scheduledAt);
+        INSERT INTO my_posts (account_id, text, post_type, target_tweet_id, status, scheduled_at)
+        VALUES (?, ?, 'quote', ?, 'scheduled', ?)
+      `).run(accountId, text, targetTweetId, scheduledAt);
 
       return res.json({
         id: result.lastInsertRowid,
@@ -100,12 +107,12 @@ router.post('/quote', async (req, res) => {
       });
     }
 
-    const xResult = await postTweet(text, { quoteTweetId: targetTweetId });
+    const xResult = await postTweet(text, { accountId, quoteTweetId: targetTweetId });
 
     db.prepare(`
-      INSERT INTO my_posts (tweet_id, text, post_type, target_tweet_id, status, posted_at)
-      VALUES (?, ?, 'quote', ?, 'posted', CURRENT_TIMESTAMP)
-    `).run(xResult.data.id, text, targetTweetId);
+      INSERT INTO my_posts (account_id, tweet_id, text, post_type, target_tweet_id, status, posted_at)
+      VALUES (?, ?, ?, 'quote', ?, 'posted', CURRENT_TIMESTAMP)
+    `).run(accountId, xResult.data.id, text, targetTweetId);
 
     res.json({ tweet_id: xResult.data.id, status: 'posted' });
   } catch (error) {
@@ -117,11 +124,26 @@ router.post('/quote', async (req, res) => {
 router.get('/scheduled', (req, res) => {
   try {
     const db = getDb();
-    const posts = db.prepare(`
-      SELECT * FROM my_posts
-      WHERE status = 'scheduled'
-      ORDER BY scheduled_at ASC
-    `).all();
+    const accountId = req.query.accountId;
+
+    let posts;
+    if (accountId) {
+      posts = db.prepare(`
+        SELECT p.*, a.display_name as account_name, a.handle as account_handle, a.color as account_color
+        FROM my_posts p
+        LEFT JOIN x_accounts a ON p.account_id = a.id
+        WHERE p.status = 'scheduled' AND p.account_id = ?
+        ORDER BY p.scheduled_at ASC
+      `).all(accountId);
+    } else {
+      posts = db.prepare(`
+        SELECT p.*, a.display_name as account_name, a.handle as account_handle, a.color as account_color
+        FROM my_posts p
+        LEFT JOIN x_accounts a ON p.account_id = a.id
+        WHERE p.status = 'scheduled'
+        ORDER BY p.scheduled_at ASC
+      `).all();
+    }
     res.json(posts);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -131,16 +153,19 @@ router.get('/scheduled', (req, res) => {
 // POST /api/tweets/schedule - Schedule a post
 router.post('/schedule', (req, res) => {
   try {
-    const { text, postType, targetTweetId, scheduledAt } = req.body;
+    const { text, postType, targetTweetId, accountId, scheduledAt } = req.body;
     if (!text || !scheduledAt) {
       return res.status(400).json({ error: 'text and scheduledAt are required' });
+    }
+    if (!accountId) {
+      return res.status(400).json({ error: 'accountId is required' });
     }
 
     const db = getDb();
     const result = db.prepare(`
-      INSERT INTO my_posts (text, post_type, target_tweet_id, status, scheduled_at)
-      VALUES (?, ?, ?, 'scheduled', ?)
-    `).run(text, postType || 'new', targetTweetId || null, scheduledAt);
+      INSERT INTO my_posts (account_id, text, post_type, target_tweet_id, status, scheduled_at)
+      VALUES (?, ?, ?, ?, 'scheduled', ?)
+    `).run(accountId, text, postType || 'new', targetTweetId || null, scheduledAt);
 
     res.json({
       id: result.lastInsertRowid,

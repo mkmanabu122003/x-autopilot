@@ -13,6 +13,7 @@ const competitorsRouter = require('../server/routes/competitors');
 const analyticsRouter = require('../server/routes/analytics');
 const aiRouter = require('../server/routes/ai');
 const settingsRouter = require('../server/routes/settings');
+const accountsRouter = require('../server/routes/accounts');
 
 const app = express();
 
@@ -20,6 +21,7 @@ app.use(cors());
 app.use(express.json());
 
 // API routes
+app.use('/api/accounts', accountsRouter);
 app.use('/api/tweets', tweetsRouter);
 app.use('/api/competitors', competitorsRouter);
 app.use('/api/analytics', analyticsRouter);

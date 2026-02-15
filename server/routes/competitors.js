@@ -5,16 +5,29 @@ const { getUserByHandle, getUserTweets } = require('../services/x-api');
 const { calculateEngagementRate } = require('../services/analytics');
 const { fetchAllCompetitorTweets } = require('../services/scheduler');
 
-// GET /api/competitors - List all competitors
+// GET /api/competitors - List all competitors (optionally filtered by account)
 router.get('/', (req, res) => {
   try {
     const db = getDb();
-    const competitors = db.prepare(`
-      SELECT c.*,
-        (SELECT COUNT(*) FROM competitor_tweets WHERE competitor_id = c.id) as tweet_count
-      FROM competitors c
-      ORDER BY c.created_at DESC
-    `).all();
+    const accountId = req.query.accountId;
+
+    let competitors;
+    if (accountId) {
+      competitors = db.prepare(`
+        SELECT c.*,
+          (SELECT COUNT(*) FROM competitor_tweets WHERE competitor_id = c.id) as tweet_count
+        FROM competitors c
+        WHERE c.account_id = ?
+        ORDER BY c.created_at DESC
+      `).all(accountId);
+    } else {
+      competitors = db.prepare(`
+        SELECT c.*,
+          (SELECT COUNT(*) FROM competitor_tweets WHERE competitor_id = c.id) as tweet_count
+        FROM competitors c
+        ORDER BY c.created_at DESC
+      `).all();
+    }
     res.json(competitors);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -24,7 +37,7 @@ router.get('/', (req, res) => {
 // POST /api/competitors - Add a competitor
 router.post('/', async (req, res) => {
   try {
-    const { handle } = req.body;
+    const { handle, accountId } = req.body;
     if (!handle) {
       return res.status(400).json({ error: 'handle is required' });
     }
@@ -34,7 +47,13 @@ router.post('/', async (req, res) => {
     // Check max accounts limit
     const maxRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('competitor_max_accounts');
     const maxAccounts = maxRow ? parseInt(maxRow.value) : 10;
-    const currentCount = db.prepare('SELECT COUNT(*) as count FROM competitors').get();
+
+    let currentCount;
+    if (accountId) {
+      currentCount = db.prepare('SELECT COUNT(*) as count FROM competitors WHERE account_id = ?').get(accountId);
+    } else {
+      currentCount = db.prepare('SELECT COUNT(*) as count FROM competitors').get();
+    }
 
     if (currentCount.count >= maxAccounts) {
       return res.status(400).json({
@@ -43,16 +62,17 @@ router.post('/', async (req, res) => {
     }
 
     // Look up user on X API
-    const userData = await getUserByHandle(handle);
+    const userData = await getUserByHandle(handle, accountId);
     if (!userData.data) {
       return res.status(404).json({ error: 'User not found on X' });
     }
 
     const user = userData.data;
     const result = db.prepare(`
-      INSERT INTO competitors (handle, name, user_id, followers_count)
-      VALUES (?, ?, ?, ?)
+      INSERT INTO competitors (account_id, handle, name, user_id, followers_count)
+      VALUES (?, ?, ?, ?, ?)
     `).run(
+      accountId || null,
       handle.replace('@', ''),
       user.name,
       user.id,

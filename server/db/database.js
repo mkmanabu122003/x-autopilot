@@ -23,14 +23,31 @@ function initDatabase() {
   const database = getDb();
 
   database.exec(`
+    CREATE TABLE IF NOT EXISTS x_accounts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      display_name TEXT NOT NULL,
+      handle TEXT NOT NULL UNIQUE,
+      color TEXT NOT NULL DEFAULT '#3B82F6',
+      api_key TEXT NOT NULL,
+      api_secret TEXT NOT NULL,
+      access_token TEXT NOT NULL,
+      access_token_secret TEXT NOT NULL,
+      bearer_token TEXT NOT NULL DEFAULT '',
+      default_ai_provider TEXT NOT NULL DEFAULT 'claude',
+      default_ai_model TEXT NOT NULL DEFAULT 'claude-sonnet-4-20250514',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS competitors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      handle TEXT NOT NULL UNIQUE,
+      account_id INTEGER,
+      handle TEXT NOT NULL,
       name TEXT,
       user_id TEXT NOT NULL,
       followers_count INTEGER DEFAULT 0,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (account_id) REFERENCES x_accounts(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS competitor_tweets (
@@ -55,6 +72,7 @@ function initDatabase() {
 
     CREATE TABLE IF NOT EXISTS my_posts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER,
       tweet_id TEXT,
       text TEXT NOT NULL,
       post_type TEXT NOT NULL CHECK(post_type IN ('new', 'reply', 'quote')),
@@ -63,7 +81,9 @@ function initDatabase() {
       scheduled_at DATETIME,
       posted_at DATETIME,
       ai_provider TEXT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      ai_model TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (account_id) REFERENCES x_accounts(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -73,10 +93,12 @@ function initDatabase() {
 
     CREATE TABLE IF NOT EXISTS api_usage_log (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id INTEGER,
       api_type TEXT NOT NULL,
       endpoint TEXT,
       cost_usd REAL DEFAULT 0,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (account_id) REFERENCES x_accounts(id) ON DELETE SET NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_competitor_tweets_competitor_id ON competitor_tweets(competitor_id);
@@ -84,15 +106,14 @@ function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_competitor_tweets_created_at_x ON competitor_tweets(created_at_x);
     CREATE INDEX IF NOT EXISTS idx_my_posts_status ON my_posts(status);
     CREATE INDEX IF NOT EXISTS idx_my_posts_scheduled_at ON my_posts(scheduled_at);
+    CREATE INDEX IF NOT EXISTS idx_my_posts_account_id ON my_posts(account_id);
     CREATE INDEX IF NOT EXISTS idx_api_usage_log_created_at ON api_usage_log(created_at);
     CREATE INDEX IF NOT EXISTS idx_api_usage_log_api_type ON api_usage_log(api_type);
+    CREATE INDEX IF NOT EXISTS idx_competitors_account_id ON competitors(account_id);
   `);
 
   // Insert default settings if not present
   const defaults = {
-    default_ai_provider: process.env.DEFAULT_AI_PROVIDER || 'claude',
-    claude_model: process.env.DEFAULT_CLAUDE_MODEL || 'claude-sonnet-4-20250514',
-    gemini_model: process.env.DEFAULT_GEMINI_MODEL || 'gemini-2.0-flash',
     competitor_fetch_interval: process.env.COMPETITOR_FETCH_INTERVAL || 'weekly',
     monthly_budget_usd: process.env.MONTHLY_BUDGET_USD || '33',
     system_prompt: `あなたはXで高いエンゲージメントを獲得するツイートを作成する専門家です。
@@ -121,6 +142,28 @@ function initDatabase() {
     }
   });
   insertDefaults();
+
+  // Migrate: add account_id columns if missing (for existing databases)
+  try {
+    database.prepare('SELECT account_id FROM my_posts LIMIT 1').get();
+  } catch {
+    database.exec('ALTER TABLE my_posts ADD COLUMN account_id INTEGER REFERENCES x_accounts(id) ON DELETE SET NULL');
+  }
+  try {
+    database.prepare('SELECT ai_model FROM my_posts LIMIT 1').get();
+  } catch {
+    database.exec('ALTER TABLE my_posts ADD COLUMN ai_model TEXT');
+  }
+  try {
+    database.prepare('SELECT account_id FROM competitors LIMIT 1').get();
+  } catch {
+    database.exec('ALTER TABLE competitors ADD COLUMN account_id INTEGER REFERENCES x_accounts(id) ON DELETE CASCADE');
+  }
+  try {
+    database.prepare('SELECT account_id FROM api_usage_log LIMIT 1').get();
+  } catch {
+    database.exec('ALTER TABLE api_usage_log ADD COLUMN account_id INTEGER REFERENCES x_accounts(id) ON DELETE SET NULL');
+  }
 
   console.log('Database initialized');
   return database;

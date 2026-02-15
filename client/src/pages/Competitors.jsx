@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAPI } from '../hooks/useAPI';
+import { useAccount } from '../contexts/AccountContext';
 import { formatNumber, formatDate } from '../utils/formatters';
 
 export default function Competitors() {
@@ -7,23 +8,28 @@ export default function Competitors() {
   const [handle, setHandle] = useState('');
   const [fetching, setFetching] = useState(false);
   const { get, post, del, loading, error } = useAPI();
+  const { currentAccount } = useAccount();
 
   const fetchCompetitors = async () => {
     try {
-      const data = await get('/competitors');
+      const params = currentAccount ? `?accountId=${currentAccount.id}` : '';
+      const data = await get(`/competitors${params}`);
       setCompetitors(data);
     } catch (err) {
       // ignore
     }
   };
 
-  useEffect(() => { fetchCompetitors(); }, []);
+  useEffect(() => { fetchCompetitors(); }, [currentAccount]);
 
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!handle.trim()) return;
     try {
-      await post('/competitors', { handle: handle.trim() });
+      await post('/competitors', {
+        handle: handle.trim(),
+        accountId: currentAccount?.id
+      });
       setHandle('');
       fetchCompetitors();
     } catch (err) {

@@ -1,6 +1,27 @@
 const { getDb } = require('../db/database');
 const { logApiUsage } = require('./x-api');
 
+const CLAUDE_MODELS = [
+  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+  { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+];
+
+const GEMINI_MODELS = [
+  { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+  { id: 'gemini-2.0-flash-lite', label: 'Gemini 2.0 Flash Lite' },
+  { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+  { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+];
+
+function getAvailableModels() {
+  return {
+    claude: { label: 'Claude (Anthropic)', models: CLAUDE_MODELS },
+    gemini: { label: 'Gemini (Google)', models: GEMINI_MODELS },
+  };
+}
+
 class AIProvider {
   async generateTweets(theme, options = {}) {
     throw new Error('Not implemented');
@@ -20,14 +41,12 @@ class AIProvider {
 
   parseCandidates(text) {
     const candidates = [];
-    // Split by patterns like "1.", "2.", "3." or "パターン1", "パターン2", etc.
     const patterns = text.split(/(?:^|\n)(?:\d+[\.\)]\s*|パターン\d+[:：]\s*)/);
 
     for (const pattern of patterns) {
       const trimmed = pattern.trim();
       if (!trimmed) continue;
 
-      // Extract hashtags
       const hashtagMatches = trimmed.match(/#[\w\u3000-\u9FFF]+/g) || [];
       candidates.push({
         text: trimmed,
@@ -35,7 +54,6 @@ class AIProvider {
       });
     }
 
-    // If parsing failed, return whole text as single candidate
     if (candidates.length === 0) {
       const hashtagMatches = text.match(/#[\w\u3000-\u9FFF]+/g) || [];
       candidates.push({ text: text.trim(), hashtags: hashtagMatches });
@@ -47,10 +65,7 @@ class AIProvider {
 
 class ClaudeProvider extends AIProvider {
   async generateTweets(theme, options = {}) {
-    const db = getDb();
-    const modelRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('claude_model');
-    const model = modelRow ? modelRow.value : 'claude-sonnet-4-20250514';
-
+    const model = options.model || 'claude-sonnet-4-20250514';
     const systemPrompt = this.getSystemPrompt({ ...options, theme });
     const userPrompt = options.customPrompt || `テーマ「${theme}」でツイートを3パターン作成してください。`;
 
@@ -77,7 +92,7 @@ class ClaudeProvider extends AIProvider {
     const data = await response.json();
     const text = data.content[0].text;
 
-    logApiUsage('claude', 'POST /v1/messages', 0.001);
+    logApiUsage('claude', 'POST /v1/messages', 0.001, options.accountId);
 
     return {
       provider: 'claude',
@@ -89,10 +104,7 @@ class ClaudeProvider extends AIProvider {
 
 class GeminiProvider extends AIProvider {
   async generateTweets(theme, options = {}) {
-    const db = getDb();
-    const modelRow = db.prepare('SELECT value FROM settings WHERE key = ?').get('gemini_model');
-    const model = modelRow ? modelRow.value : 'gemini-2.0-flash';
-
+    const model = options.model || 'gemini-2.0-flash';
     const systemPrompt = this.getSystemPrompt({ ...options, theme });
     const userPrompt = options.customPrompt || `テーマ「${theme}」でツイートを3パターン作成してください。`;
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
@@ -116,7 +128,7 @@ class GeminiProvider extends AIProvider {
     const data = await response.json();
     const text = data.candidates[0].content.parts[0].text;
 
-    logApiUsage('gemini', `POST /models/${model}:generateContent`, 0.0002);
+    logApiUsage('gemini', `POST /models/${model}:generateContent`, 0.0002, options.accountId);
 
     return {
       provider: 'gemini',
@@ -137,4 +149,4 @@ function getAIProvider(providerName) {
   }
 }
 
-module.exports = { getAIProvider, AIProvider, ClaudeProvider, GeminiProvider };
+module.exports = { getAIProvider, getAvailableModels, AIProvider, ClaudeProvider, GeminiProvider };
