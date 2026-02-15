@@ -99,12 +99,14 @@ async function getUserByHandle(handle, accountId) {
   const queryString = new URLSearchParams(params).toString();
   const fullUrl = `${url}?${queryString}`;
 
-  let bearerToken;
-  if (accountId) {
-    const credentials = getAccountCredentials(accountId);
-    bearerToken = credentials.bearer_token || process.env.X_BEARER_TOKEN;
-  } else {
-    bearerToken = process.env.X_BEARER_TOKEN;
+  if (!accountId) {
+    throw new Error('accountId is required');
+  }
+
+  const credentials = getAccountCredentials(accountId);
+  const bearerToken = credentials.bearer_token;
+  if (!bearerToken) {
+    throw new Error('Bearer token is not set for this account');
   }
 
   const response = await fetch(fullUrl, {
@@ -131,12 +133,14 @@ async function getUserTweets(userId, maxResults = 100, accountId) {
   const queryString = new URLSearchParams(params).toString();
   const fullUrl = `${url}?${queryString}`;
 
-  let bearerToken;
-  if (accountId) {
-    const credentials = getAccountCredentials(accountId);
-    bearerToken = credentials.bearer_token || process.env.X_BEARER_TOKEN;
-  } else {
-    bearerToken = process.env.X_BEARER_TOKEN;
+  if (!accountId) {
+    throw new Error('accountId is required');
+  }
+
+  const credentials = getAccountCredentials(accountId);
+  const bearerToken = credentials.bearer_token;
+  if (!bearerToken) {
+    throw new Error('Bearer token is not set for this account');
   }
 
   const response = await fetch(fullUrl, {

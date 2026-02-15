@@ -69,6 +69,10 @@ class ClaudeProvider extends AIProvider {
     const systemPrompt = this.getSystemPrompt({ ...options, theme });
     const userPrompt = options.customPrompt || `テーマ「${theme}」でツイートを3パターン作成してください。`;
 
+    if (!process.env.CLAUDE_API_KEY) {
+      throw new Error('CLAUDE_API_KEY environment variable is not set');
+    }
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -108,6 +112,10 @@ class GeminiProvider extends AIProvider {
     const systemPrompt = this.getSystemPrompt({ ...options, theme });
     const userPrompt = options.customPrompt || `テーマ「${theme}」でツイートを3パターン作成してください。`;
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
+
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error('GEMINI_API_KEY environment variable is not set');
+    }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
