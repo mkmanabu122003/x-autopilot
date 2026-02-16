@@ -103,5 +103,8 @@ INSERT INTO settings (key, value) VALUES
 {competitorContext}'),
   ('default_hashtags', ''),
   ('confirm_before_post', 'true'),
-  ('competitor_max_accounts', '10')
+  ('competitor_max_accounts', '10'),
+  ('budget_x_api_usd', '10'),
+  ('budget_gemini_usd', '10'),
+  ('budget_claude_usd', '13')
 ON CONFLICT (key) DO NOTHING;
