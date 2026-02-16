@@ -14,12 +14,22 @@ export default function Competitors() {
   const [showSearch, setShowSearch] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [minFollowers, setMinFollowers] = useState('');
+  const [maxFollowers, setMaxFollowers] = useState('');
   const [language, setLanguage] = useState('ja');
+  const [minLikes, setMinLikes] = useState('');
+  const [minRetweets, setMinRetweets] = useState('');
+  const [hasMedia, setHasMedia] = useState(false);
+  const [hasLinks, setHasLinks] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [searching, setSearching] = useState(false);
   const [adding, setAdding] = useState(false);
   const [searchError, setSearchError] = useState('');
+
+  // Keyword suggestions state
+  const [suggestions, setSuggestions] = useState(null);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
 
   const fetchCompetitors = async () => {
     try {
@@ -68,6 +78,26 @@ export default function Competitors() {
     }
   };
 
+  // Keyword suggestion
+  const handleSuggestKeywords = async () => {
+    if (!currentAccount?.id) return;
+    setLoadingSuggestions(true);
+    try {
+      const data = await post('/competitors/suggest-keywords', {
+        accountId: currentAccount.id
+      });
+      setSuggestions(data);
+    } catch (err) {
+      // ignore
+    } finally {
+      setLoadingSuggestions(false);
+    }
+  };
+
+  const applyKeyword = (word) => {
+    setKeyword(word);
+  };
+
   // Auto-search handlers
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -80,7 +110,12 @@ export default function Competitors() {
       const data = await post('/competitors/search', {
         keyword: keyword.trim(),
         minFollowers: minFollowers ? parseInt(minFollowers) : undefined,
+        maxFollowers: maxFollowers ? parseInt(maxFollowers) : undefined,
         language: language || undefined,
+        minLikes: minLikes ? parseInt(minLikes) : undefined,
+        minRetweets: minRetweets ? parseInt(minRetweets) : undefined,
+        hasMedia: hasMedia || undefined,
+        hasLinks: hasLinks || undefined,
         accountId: currentAccount?.id
       });
       setCandidates(data);
@@ -123,7 +158,6 @@ export default function Competitors() {
         users: usersToAdd,
         accountId: currentAccount?.id
       });
-      // Remove added users from candidates
       setCandidates(prev => prev.filter(c => !selectedIds.has(c.user_id)));
       setSelectedIds(new Set());
       fetchCompetitors();
@@ -188,16 +222,84 @@ export default function Competitors() {
         {showSearch && (
           <div className="space-y-4">
             <p className="text-xs text-gray-500">
-              キーワードやハッシュタグで検索し、関連するアカウントを自動で発見します
+              キーワードで検索し、関連するアカウントを自動で発見します
             </p>
+
+            {/* Keyword suggestions */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-500">キーワード候補</span>
+                <button
+                  type="button"
+                  onClick={handleSuggestKeywords}
+                  disabled={loadingSuggestions || !currentAccount?.id}
+                  className="text-xs text-purple-600 hover:text-purple-700 disabled:opacity-50"
+                >
+                  {loadingSuggestions ? '分析中...' : 'AIで候補を提案'}
+                </button>
+              </div>
+
+              {suggestions && (
+                <div className="space-y-2">
+                  {suggestions.profile && suggestions.profile.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">プロフィールから提案</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {suggestions.profile.map((kw, i) => (
+                          <button
+                            key={`p-${i}`}
+                            type="button"
+                            onClick={() => applyKeyword(kw)}
+                            className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                              keyword === kw
+                                ? 'bg-purple-100 border-purple-400 text-purple-700'
+                                : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-purple-50 hover:border-purple-300'
+                            }`}
+                          >
+                            {kw}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {suggestions.competitor && suggestions.competitor.length > 0 && (
+                    <div>
+                      <p className="text-xs text-gray-400 mb-1">競合ツイートの頻出ワード</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {suggestions.competitor.map((item, i) => (
+                          <button
+                            key={`c-${i}`}
+                            type="button"
+                            onClick={() => applyKeyword(item.word)}
+                            className={`px-2.5 py-1 text-xs rounded-full border transition-colors ${
+                              keyword === item.word
+                                ? 'bg-purple-100 border-purple-400 text-purple-700'
+                                : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-purple-50 hover:border-purple-300'
+                            }`}
+                          >
+                            {item.word}
+                            <span className="ml-1 text-gray-400">({item.count})</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {(!suggestions.profile || suggestions.profile.length === 0) &&
+                   (!suggestions.competitor || suggestions.competitor.length === 0) && (
+                    <p className="text-xs text-gray-400">候補が見つかりませんでした</p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <form onSubmit={handleSearch} className="space-y-3">
               <div>
-                <label className="block text-xs text-gray-500 mb-1">キーワード / ハッシュタグ</label>
+                <label className="block text-xs text-gray-500 mb-1">キーワード</label>
                 <input
                   type="text"
                   value={keyword}
                   onChange={(e) => setKeyword(e.target.value)}
-                  placeholder="例: #マーケティング, AI活用, プログラミング"
+                  placeholder="例: AI活用, マーケティング, プログラミング"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 />
               </div>
@@ -226,6 +328,81 @@ export default function Competitors() {
                   </select>
                 </div>
               </div>
+
+              {/* Advanced parameters toggle */}
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+              >
+                <span className={`inline-block transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>&#9654;</span>
+                詳細条件
+              </button>
+
+              {showAdvanced && (
+                <div className="space-y-3 pl-2 border-l-2 border-purple-200">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">最大フォロワー数</label>
+                      <input
+                        type="number"
+                        value={maxFollowers}
+                        onChange={(e) => setMaxFollowers(e.target.value)}
+                        placeholder="例: 100000"
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">最低いいね数</label>
+                      <input
+                        type="number"
+                        value={minLikes}
+                        onChange={(e) => setMinLikes(e.target.value)}
+                        placeholder="例: 10"
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">最低RT数</label>
+                      <input
+                        type="number"
+                        value={minRetweets}
+                        onChange={(e) => setMinRetweets(e.target.value)}
+                        placeholder="例: 5"
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div className="flex items-end pb-1">
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={hasMedia}
+                            onChange={(e) => setHasMedia(e.target.checked)}
+                            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">画像/動画あり</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={hasLinks}
+                            onChange={(e) => setHasLinks(e.target.checked)}
+                            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">リンクあり</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={searching || !keyword.trim()}
