@@ -1,16 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useSettings } from '../hooks/useSettings';
 import { useAPI } from '../hooks/useAPI';
 import { useAccount } from '../contexts/AccountContext';
 import { formatCurrency, formatPercent } from '../utils/formatters';
 import ModelSelect from '../components/ModelSelect';
+import ModelSelector from '../components/ModelSelector';
 
 const ACCOUNT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4', '#F97316'];
+
+const TABS = [
+  { id: 'accounts', label: 'Xアカウント' },
+  { id: 'cost', label: 'コスト最適化' },
+  { id: 'ai', label: 'AI共通設定' },
+  { id: 'competitor', label: '競合分析' },
+  { id: 'post', label: '投稿設定' },
+];
+
+const TASK_TYPE_OPTIONS = [
+  { value: 'tweet_generation', label: 'ツイート生成' },
+  { value: 'comment_generation', label: 'コメント生成' },
+  { value: 'quote_rt_generation', label: '引用RT生成' },
+  { value: 'competitor_analysis', label: '競合分析' },
+  { value: 'performance_summary', label: 'パフォーマンス要約' },
+];
 
 export default function Settings() {
   const { settings, updateSettings, loading } = useSettings();
   const { get, post, put, del } = useAPI();
   const { accounts, refreshAccounts, currentAccount } = useAccount();
+  const [activeTab, setActiveTab] = useState('accounts');
   const [usage, setUsage] = useState(null);
   const [saved, setSaved] = useState(false);
   const [showAddAccount, setShowAddAccount] = useState(false);
@@ -18,6 +36,13 @@ export default function Settings() {
   const [accountError, setAccountError] = useState('');
   const [verifying, setVerifying] = useState(null);
   const [verifyResult, setVerifyResult] = useState(null);
+
+  // Cost optimization state
+  const [costSettings, setCostSettings] = useState(null);
+  const [taskModels, setTaskModels] = useState([]);
+  const [selectedPromptTask, setSelectedPromptTask] = useState('tweet_generation');
+  const [promptData, setPromptData] = useState(null);
+  const [costSaved, setCostSaved] = useState(false);
 
   const [form, setForm] = useState({
     competitor_fetch_interval: '',
@@ -52,6 +77,21 @@ export default function Settings() {
   useEffect(() => {
     get('/settings/usage').then(setUsage).catch(() => {});
   }, [get]);
+
+  // Load cost optimization settings
+  const loadCostSettings = useCallback(() => {
+    get('/settings/cost').then(setCostSettings).catch(() => {});
+    get('/settings/task-models').then(setTaskModels).catch(() => {});
+  }, [get]);
+
+  useEffect(() => {
+    loadCostSettings();
+  }, [loadCostSettings]);
+
+  // Load prompt for selected task
+  useEffect(() => {
+    get(`/settings/prompts/${selectedPromptTask}`).then(setPromptData).catch(() => {});
+  }, [get, selectedPromptTask]);
 
   const handleSave = async () => {
     try {
@@ -143,6 +183,58 @@ export default function Settings() {
     }
   };
 
+  // Cost settings handlers
+  const handleCostSettingChange = (key, value) => {
+    setCostSettings(prev => ({ ...prev, [key]: value }));
+  };
+
+  const handleSaveCostSettings = async () => {
+    try {
+      await put('/settings/cost', costSettings);
+      setCostSaved(true);
+      setTimeout(() => setCostSaved(false), 2000);
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleTaskModelChange = async (taskType, updates) => {
+    try {
+      await put(`/settings/task-models/${taskType}`, updates);
+      loadCostSettings();
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleSavePrompt = async () => {
+    if (!promptData) return;
+    try {
+      await put(`/settings/prompts/${selectedPromptTask}`, {
+        system_prompt: promptData.system_prompt,
+        user_template: promptData.user_template
+      });
+      setCostSaved(true);
+      setTimeout(() => setCostSaved(false), 2000);
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleResetPrompt = async () => {
+    try {
+      const result = await post(`/settings/prompts/${selectedPromptTask}/reset`);
+      setPromptData({
+        task_type: selectedPromptTask,
+        system_prompt: result.system_prompt,
+        user_template: result.user_template,
+        is_custom: false
+      });
+    } catch (err) {
+      // ignore
+    }
+  };
+
   const renderAccountForm = (isEdit) => (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
@@ -206,188 +298,370 @@ export default function Settings() {
   );
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-3xl">
       <h2 className="text-xl font-bold text-gray-900">設定</h2>
 
-      {/* Account Management */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">Xアカウント管理</h3>
-          {!showAddAccount && !editingAccount && (
-            <button
-              onClick={() => { setAccountForm({ ...emptyAccountForm, color: ACCOUNT_COLORS[accounts.length % ACCOUNT_COLORS.length] }); setShowAddAccount(true); setAccountError(''); }}
-              className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              + アカウント追加
-            </button>
-          )}
-        </div>
+      {/* Tab navigation */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 px-3 py-2 text-sm font-medium rounded-md transition-colors ${
+              activeTab === tab.id
+                ? 'bg-white text-gray-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-        {/* Account list */}
-        {accounts.length === 0 && !showAddAccount && (
-          <p className="text-sm text-gray-400 text-center py-4">
-            Xアカウントが登録されていません
-          </p>
-        )}
-        {accounts.map(account => (
-          <div key={account.id} className="space-y-2">
-            <div
-              className={`flex items-center gap-3 p-3 rounded-lg border-2 ${editingAccount?.id === account.id ? 'border-blue-400' : 'border-gray-100'}`}
-            >
-              <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: account.color }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-bold text-gray-900">{account.display_name}</p>
-                <p className="text-xs text-gray-500">@{account.handle}</p>
-              </div>
-              <div className="flex gap-1 flex-shrink-0">
-                <button onClick={() => handleVerifyAccount(account.id)} disabled={verifying === account.id}
-                  className="px-2 py-1 text-xs text-green-600 border border-green-200 rounded hover:bg-green-50 transition-colors disabled:opacity-50">
-                  {verifying === account.id ? '検証中...' : '検証'}
+      {/* ===== Accounts Tab ===== */}
+      {activeTab === 'accounts' && (
+        <>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">Xアカウント管理</h3>
+              {!showAddAccount && !editingAccount && (
+                <button
+                  onClick={() => { setAccountForm({ ...emptyAccountForm, color: ACCOUNT_COLORS[accounts.length % ACCOUNT_COLORS.length] }); setShowAddAccount(true); setAccountError(''); }}
+                  className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  + アカウント追加
                 </button>
-                <button onClick={() => startEdit(account)}
-                  className="px-2 py-1 text-xs text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors">
-                  編集
-                </button>
-                <button onClick={() => handleDeleteAccount(account.id)}
-                  className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors">
-                  削除
-                </button>
-              </div>
+              )}
             </div>
-            {verifyResult?.accountId === account.id && (
-              <div className={`ml-7 p-3 rounded-lg text-xs ${verifyResult.oauth ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className={verifyResult.oauth ? 'text-green-600' : 'text-red-600'}>
-                      {verifyResult.oauth ? 'OK' : 'NG'} OAuth認証
-                    </span>
+
+            {accounts.length === 0 && !showAddAccount && (
+              <p className="text-sm text-gray-400 text-center py-4">
+                Xアカウントが登録されていません
+              </p>
+            )}
+            {accounts.map(account => (
+              <div key={account.id} className="space-y-2">
+                <div
+                  className={`flex items-center gap-3 p-3 rounded-lg border-2 ${editingAccount?.id === account.id ? 'border-blue-400' : 'border-gray-100'}`}
+                >
+                  <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: account.color }} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-gray-900">{account.display_name}</p>
+                    <p className="text-xs text-gray-500">@{account.handle}</p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={verifyResult.bearer ? 'text-green-600' : 'text-gray-400'}>
-                      {verifyResult.bearer ? 'OK' : 'NG'} Bearerトークン
-                    </span>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <button onClick={() => handleVerifyAccount(account.id)} disabled={verifying === account.id}
+                      className="px-2 py-1 text-xs text-green-600 border border-green-200 rounded hover:bg-green-50 transition-colors disabled:opacity-50">
+                      {verifying === account.id ? '検証中...' : '検証'}
+                    </button>
+                    <button onClick={() => startEdit(account)}
+                      className="px-2 py-1 text-xs text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors">
+                      編集
+                    </button>
+                    <button onClick={() => handleDeleteAccount(account.id)}
+                      className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors">
+                      削除
+                    </button>
                   </div>
-                  {verifyResult.user && (
-                    <p className="text-gray-700 mt-1">
-                      認証ユーザー: {verifyResult.user.name} (@{verifyResult.user.username})
-                    </p>
-                  )}
-                  {verifyResult.errors?.length > 0 && (
-                    <div className="mt-1 text-red-600">
-                      {verifyResult.errors.map((e, i) => <p key={i}>{e}</p>)}
-                    </div>
-                  )}
                 </div>
-                <button onClick={() => setVerifyResult(null)} className="mt-2 text-gray-500 hover:text-gray-700">
-                  閉じる
-                </button>
+                {verifyResult?.accountId === account.id && (
+                  <div className={`ml-7 p-3 rounded-lg text-xs ${verifyResult.oauth ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className={verifyResult.oauth ? 'text-green-600' : 'text-red-600'}>
+                          {verifyResult.oauth ? 'OK' : 'NG'} OAuth認証
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className={verifyResult.bearer ? 'text-green-600' : 'text-gray-400'}>
+                          {verifyResult.bearer ? 'OK' : 'NG'} Bearerトークン
+                        </span>
+                      </div>
+                      {verifyResult.user && (
+                        <p className="text-gray-700 mt-1">
+                          認証ユーザー: {verifyResult.user.name} (@{verifyResult.user.username})
+                        </p>
+                      )}
+                      {verifyResult.errors?.length > 0 && (
+                        <div className="mt-1 text-red-600">
+                          {verifyResult.errors.map((e, i) => <p key={i}>{e}</p>)}
+                        </div>
+                      )}
+                    </div>
+                    <button onClick={() => setVerifyResult(null)} className="mt-2 text-gray-500 hover:text-gray-700">
+                      閉じる
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {editingAccount && renderAccountForm(true)}
+            {showAddAccount && renderAccountForm(false)}
+          </div>
+        </>
+      )}
+
+      {/* ===== Cost Optimization Tab ===== */}
+      {activeTab === 'cost' && costSettings && (
+        <>
+          {/* Monthly Budget */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">月間予算</h3>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                value={costSettings.monthly_budget_usd || 33}
+                onChange={(e) => handleCostSettingChange('monthly_budget_usd', parseFloat(e.target.value) || 0)}
+                min={1} step={1}
+                className="w-24 px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              />
+              <span className="text-sm text-gray-500">USD（約 {Math.round((costSettings.monthly_budget_usd || 33) * 150).toLocaleString()}円）</span>
+            </div>
+          </div>
+
+          {/* Task Model Settings */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">タスク別モデル設定</h3>
+            <p className="text-xs text-gray-500">各タスクのデフォルトAIモデル、effortレベル、最大トークン数を設定できます。</p>
+            <ModelSelector taskModels={taskModels} onChange={handleTaskModelChange} />
+          </div>
+
+          {/* Prompt Caching */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">Prompt Caching</h3>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={costSettings.cache_enabled || false}
+                onChange={(e) => handleCostSettingChange('cache_enabled', e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">システムプロンプトのキャッシュを有効にする</span>
+            </label>
+            <p className="text-xs text-gray-400">Claude APIのPrompt Cachingにより、入力トークンコストを最大90%削減できます。</p>
+          </div>
+
+          {/* Batch API */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">Batch API</h3>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={costSettings.batch_enabled || false}
+                onChange={(e) => handleCostSettingChange('batch_enabled', e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">一括生成でBatch APIを使用する（50%コスト削減）</span>
+            </label>
+            <div className="flex items-center gap-3">
+              <label className="text-sm text-gray-700">バッチ実行時刻:</label>
+              <select
+                value={costSettings.batch_schedule_hour || 3}
+                onChange={(e) => handleCostSettingChange('batch_schedule_hour', parseInt(e.target.value))}
+                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              >
+                {Array.from({ length: 24 }, (_, i) => (
+                  <option key={i} value={i}>{String(i).padStart(2, '0')}:00</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Budget Alerts */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">予算アラート</h3>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={costSettings.budget_alert_80 || false}
+                onChange={(e) => handleCostSettingChange('budget_alert_80', e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">80%到達で警告通知</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={costSettings.budget_pause_100 || false}
+                onChange={(e) => handleCostSettingChange('budget_pause_100', e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">100%到達でAPI呼び出し一時停止</span>
+            </label>
+          </div>
+
+          {/* Prompt Templates */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">プロンプトテンプレート</h3>
+            <select
+              value={selectedPromptTask}
+              onChange={(e) => setSelectedPromptTask(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+            >
+              {TASK_TYPE_OPTIONS.map(opt => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            {promptData && (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    システムプロンプト
+                    {promptData.is_custom && <span className="ml-1 text-blue-500">（カスタム）</span>}
+                  </label>
+                  <textarea
+                    value={promptData.system_prompt || ''}
+                    onChange={(e) => setPromptData(prev => ({ ...prev, system_prompt: e.target.value }))}
+                    rows={6}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none font-mono"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={handleSavePrompt}
+                    className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    保存
+                  </button>
+                  <button onClick={handleResetPrompt}
+                    className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                    デフォルトに戻す
+                  </button>
+                </div>
               </div>
             )}
           </div>
-        ))}
 
-        {/* Edit form */}
-        {editingAccount && renderAccountForm(true)}
-
-        {/* Add form */}
-        {showAddAccount && renderAccountForm(false)}
-      </div>
-
-      {/* API Usage */}
-      {usage && (
-        <div className="bg-white border border-gray-200 rounded-lg p-4">
-          <h3 className="font-semibold text-gray-900 mb-3">API利用状況（今月）</h3>
-          <div className="space-y-2">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">合計費用</span>
-              <span className="font-medium">{formatCurrency(usage.totalCostUsd)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-600">予算消化率</span>
-              <span className={`font-medium ${usage.budgetUsedPercent > 80 ? 'text-yellow-600' : 'text-gray-900'}`}>
-                {formatPercent(usage.budgetUsedPercent)}
-              </span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className={`h-2 rounded-full ${usage.budgetUsedPercent > 80 ? 'bg-yellow-500' : 'bg-blue-500'}`}
-                style={{ width: `${Math.min(usage.budgetUsedPercent, 100)}%` }}
-              />
-            </div>
+          {/* Save cost settings */}
+          <div className="flex items-center gap-3">
+            <button onClick={handleSaveCostSettings} disabled={loading}
+              className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {loading ? '保存中...' : 'コスト設定を保存'}
+            </button>
+            {costSaved && <span className="text-sm text-green-600">保存しました</span>}
           </div>
-        </div>
+        </>
       )}
 
-      {/* General AI Settings (system prompt) */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
-        <h3 className="font-semibold text-gray-900">AI共通設定</h3>
+      {/* ===== AI Common Settings Tab ===== */}
+      {activeTab === 'ai' && (
+        <>
+          {usage && (
+            <div className="bg-white border border-gray-200 rounded-lg p-4">
+              <h3 className="font-semibold text-gray-900 mb-3">API利用状況（今月）</h3>
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">合計費用</span>
+                  <span className="font-medium">{formatCurrency(usage.totalCostUsd)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-600">予算消化率</span>
+                  <span className={`font-medium ${usage.budgetUsedPercent > 80 ? 'text-yellow-600' : 'text-gray-900'}`}>
+                    {formatPercent(usage.budgetUsedPercent)}
+                  </span>
+                </div>
+                <div className="w-full bg-gray-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full ${usage.budgetUsedPercent > 80 ? 'bg-yellow-500' : 'bg-blue-500'}`}
+                    style={{ width: `${Math.min(usage.budgetUsedPercent, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">システムプロンプト</label>
-          <textarea
-            value={form.system_prompt}
-            onChange={(e) => handleChange('system_prompt', e.target.value)}
-            rows={6}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none font-mono"
-          />
-          <p className="text-xs text-gray-400 mt-1">
-            変数: {'{postType}'}, {'{userInput}'}, {'{competitorContext}'}
-          </p>
-        </div>
-      </div>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">AI共通設定</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">システムプロンプト</label>
+              <textarea
+                value={form.system_prompt}
+                onChange={(e) => handleChange('system_prompt', e.target.value)}
+                rows={6}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none font-mono"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                変数: {'{postType}'}, {'{userInput}'}, {'{competitorContext}'}
+              </p>
+            </div>
+          </div>
 
-      {/* Competitor Analysis Settings */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
-        <h3 className="font-semibold text-gray-900">競合分析設定</h3>
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} disabled={loading}
+              className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {loading ? '保存中...' : '設定を保存'}
+            </button>
+            {saved && <span className="text-sm text-green-600">保存しました</span>}
+          </div>
+        </>
+      )}
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">データ取得頻度</label>
-          <select
-            value={form.competitor_fetch_interval}
-            onChange={(e) => handleChange('competitor_fetch_interval', e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-          >
-            <option value="daily">毎日</option>
-            <option value="weekly">週1回</option>
-            <option value="biweekly">週2回</option>
-          </select>
-        </div>
+      {/* ===== Competitor Analysis Tab ===== */}
+      {activeTab === 'competitor' && (
+        <>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">競合分析設定</h3>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">監視アカウント上限</label>
-          <input type="number" value={form.competitor_max_accounts}
-            onChange={(e) => handleChange('competitor_max_accounts', e.target.value)}
-            min={1} max={50} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-        </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">データ取得頻度</label>
+              <select
+                value={form.competitor_fetch_interval}
+                onChange={(e) => handleChange('competitor_fetch_interval', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+              >
+                <option value="daily">毎日</option>
+                <option value="weekly">週1回</option>
+                <option value="biweekly">週2回</option>
+              </select>
+            </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">月間予算 (USD)</label>
-          <input type="number" value={form.monthly_budget_usd}
-            onChange={(e) => handleChange('monthly_budget_usd', e.target.value)}
-            min={1} step={1} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-        </div>
-      </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">監視アカウント上限</label>
+              <input type="number" value={form.competitor_max_accounts}
+                onChange={(e) => handleChange('competitor_max_accounts', e.target.value)}
+                min={1} max={50} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
 
-      {/* Post Settings */}
-      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
-        <h3 className="font-semibold text-gray-900">投稿設定</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">月間予算 (USD)</label>
+              <input type="number" value={form.monthly_budget_usd}
+                onChange={(e) => handleChange('monthly_budget_usd', e.target.value)}
+                min={1} step={1} className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
+          </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">デフォルトハッシュタグ</label>
-          <input type="text" value={form.default_hashtags}
-            onChange={(e) => handleChange('default_hashtags', e.target.value)}
-            placeholder="#タグ1 #タグ2" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
-        </div>
-      </div>
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} disabled={loading}
+              className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {loading ? '保存中...' : '設定を保存'}
+            </button>
+            {saved && <span className="text-sm text-green-600">保存しました</span>}
+          </div>
+        </>
+      )}
 
-      {/* Save */}
-      <div className="flex items-center gap-3">
-        <button onClick={handleSave} disabled={loading}
-          className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-          {loading ? '保存中...' : '設定を保存'}
-        </button>
-        {saved && <span className="text-sm text-green-600">保存しました</span>}
-      </div>
+      {/* ===== Post Settings Tab ===== */}
+      {activeTab === 'post' && (
+        <>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">投稿設定</h3>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">デフォルトハッシュタグ</label>
+              <input type="text" value={form.default_hashtags}
+                onChange={(e) => handleChange('default_hashtags', e.target.value)}
+                placeholder="#タグ1 #タグ2" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} disabled={loading}
+              className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
+              {loading ? '保存中...' : '設定を保存'}
+            </button>
+            {saved && <span className="text-sm text-green-600">保存しました</span>}
+          </div>
+        </>
+      )}
     </div>
   );
 }

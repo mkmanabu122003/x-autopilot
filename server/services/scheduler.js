@@ -2,6 +2,7 @@ const cron = require('node-cron');
 const { getDb } = require('../db/database');
 const { postTweet, getUserTweets } = require('./x-api');
 const { calculateEngagementRate } = require('./analytics');
+const { BatchManager } = require('./batch-manager');
 
 function startScheduler() {
   // Check for scheduled posts every minute
@@ -13,6 +14,16 @@ function startScheduler() {
   cron.schedule('0 3 * * *', async () => {
     // Runs daily at 3 AM, but respects the interval setting
     await fetchCompetitorTweetsIfDue();
+  });
+
+  // Poll batch API results every 5 minutes
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const batchManager = new BatchManager();
+      await batchManager.pollBatchResults();
+    } catch (err) {
+      console.error('Batch polling error:', err.message);
+    }
   });
 
   console.log('Scheduler started');
