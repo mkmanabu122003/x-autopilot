@@ -128,7 +128,7 @@ export default function Settings() {
     }
   };
 
-  const AccountFormUI = ({ isEdit }) => (
+  const renderAccountForm = (isEdit) => (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-3">
         <div>
@@ -237,10 +237,10 @@ export default function Settings() {
         ))}
 
         {/* Edit form */}
-        {editingAccount && <AccountFormUI isEdit={true} />}
+        {editingAccount && renderAccountForm(true)}
 
         {/* Add form */}
-        {showAddAccount && <AccountFormUI isEdit={false} />}
+        {showAddAccount && renderAccountForm(false)}
       </div>
 
       {/* API Usage */}
