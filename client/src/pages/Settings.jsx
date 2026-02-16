@@ -16,6 +16,8 @@ export default function Settings() {
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [editingAccount, setEditingAccount] = useState(null);
   const [accountError, setAccountError] = useState('');
+  const [verifying, setVerifying] = useState(null);
+  const [verifyResult, setVerifyResult] = useState(null);
 
   const [form, setForm] = useState({
     competitor_fetch_interval: '',
@@ -103,6 +105,19 @@ export default function Settings() {
       await refreshAccounts();
     } catch (err) {
       setAccountError(err.message);
+    }
+  };
+
+  const handleVerifyAccount = async (accountId) => {
+    setVerifying(accountId);
+    setVerifyResult(null);
+    try {
+      const result = await post(`/accounts/${accountId}/verify`);
+      setVerifyResult({ accountId, ...result });
+    } catch (err) {
+      setVerifyResult({ accountId, oauth: false, bearer: false, errors: [err.message] });
+    } finally {
+      setVerifying(null);
     }
   };
 
@@ -215,24 +230,59 @@ export default function Settings() {
           </p>
         )}
         {accounts.map(account => (
-          <div key={account.id}
-            className={`flex items-center gap-3 p-3 rounded-lg border-2 ${editingAccount?.id === account.id ? 'border-blue-400' : 'border-gray-100'}`}
-          >
-            <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: account.color }} />
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-gray-900">{account.display_name}</p>
-              <p className="text-xs text-gray-500">@{account.handle}</p>
+          <div key={account.id} className="space-y-2">
+            <div
+              className={`flex items-center gap-3 p-3 rounded-lg border-2 ${editingAccount?.id === account.id ? 'border-blue-400' : 'border-gray-100'}`}
+            >
+              <span className="w-4 h-4 rounded-full flex-shrink-0" style={{ backgroundColor: account.color }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-bold text-gray-900">{account.display_name}</p>
+                <p className="text-xs text-gray-500">@{account.handle}</p>
+              </div>
+              <div className="flex gap-1 flex-shrink-0">
+                <button onClick={() => handleVerifyAccount(account.id)} disabled={verifying === account.id}
+                  className="px-2 py-1 text-xs text-green-600 border border-green-200 rounded hover:bg-green-50 transition-colors disabled:opacity-50">
+                  {verifying === account.id ? '検証中...' : '検証'}
+                </button>
+                <button onClick={() => startEdit(account)}
+                  className="px-2 py-1 text-xs text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors">
+                  編集
+                </button>
+                <button onClick={() => handleDeleteAccount(account.id)}
+                  className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors">
+                  削除
+                </button>
+              </div>
             </div>
-            <div className="flex gap-1 flex-shrink-0">
-              <button onClick={() => startEdit(account)}
-                className="px-2 py-1 text-xs text-blue-600 border border-blue-200 rounded hover:bg-blue-50 transition-colors">
-                編集
-              </button>
-              <button onClick={() => handleDeleteAccount(account.id)}
-                className="px-2 py-1 text-xs text-red-600 border border-red-200 rounded hover:bg-red-50 transition-colors">
-                削除
-              </button>
-            </div>
+            {verifyResult?.accountId === account.id && (
+              <div className={`ml-7 p-3 rounded-lg text-xs ${verifyResult.oauth ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className={verifyResult.oauth ? 'text-green-600' : 'text-red-600'}>
+                      {verifyResult.oauth ? 'OK' : 'NG'} OAuth認証
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={verifyResult.bearer ? 'text-green-600' : 'text-gray-400'}>
+                      {verifyResult.bearer ? 'OK' : 'NG'} Bearerトークン
+                    </span>
+                  </div>
+                  {verifyResult.user && (
+                    <p className="text-gray-700 mt-1">
+                      認証ユーザー: {verifyResult.user.name} (@{verifyResult.user.username})
+                    </p>
+                  )}
+                  {verifyResult.errors?.length > 0 && (
+                    <div className="mt-1 text-red-600">
+                      {verifyResult.errors.map((e, i) => <p key={i}>{e}</p>)}
+                    </div>
+                  )}
+                </div>
+                <button onClick={() => setVerifyResult(null)} className="mt-2 text-gray-500 hover:text-gray-700">
+                  閉じる
+                </button>
+              </div>
+            )}
           </div>
         ))}
 

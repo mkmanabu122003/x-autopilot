@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
 const { encrypt, decrypt } = require('../utils/crypto');
+const { verifyCredentials } = require('../services/x-api');
 
 const ACCOUNT_COLORS = [
   '#3B82F6', '#EF4444', '#10B981', '#F59E0B',
@@ -120,6 +121,16 @@ router.put('/:id', async (req, res) => {
     const { error } = await sb.from('x_accounts').update(updates).eq('id', req.params.id);
     if (error) throw error;
     res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/accounts/:id/verify
+router.post('/:id/verify', async (req, res) => {
+  try {
+    const result = await verifyCredentials(req.params.id);
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
