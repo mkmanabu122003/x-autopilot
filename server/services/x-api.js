@@ -185,4 +185,32 @@ async function verifyCredentials(accountId) {
   return result;
 }
 
-module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials };
+async function searchRecentTweets(query, accountId, maxResults = 100) {
+  if (!accountId) throw new Error('accountId is required');
+  const credentials = await getAccountCredentials(accountId);
+  if (!credentials.bearer_token) throw new Error('Bearer token is not set for this account');
+
+  const params = new URLSearchParams({
+    'query': query,
+    'tweet.fields': 'public_metrics,created_at,author_id',
+    'expansions': 'author_id',
+    'user.fields': 'public_metrics,description,profile_image_url',
+    'max_results': String(Math.min(Math.max(maxResults, 10), 100))
+  });
+  const fullUrl = `${API_BASE}/2/tweets/search/recent?${params}`;
+
+  const response = await fetch(fullUrl, {
+    headers: { 'Authorization': `Bearer ${credentials.bearer_token}` }
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(`X API error ${response.status}: ${JSON.stringify(error)}`);
+  }
+
+  const data = await response.json();
+  await logApiUsage('x_search', 'GET /2/tweets/search/recent', 0.01, accountId);
+  return data;
+}
+
+module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials, searchRecentTweets };

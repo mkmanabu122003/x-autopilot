@@ -10,6 +10,17 @@ export default function Competitors() {
   const { get, post, del, loading, error } = useAPI();
   const { currentAccount } = useAccount();
 
+  // Auto-search state
+  const [showSearch, setShowSearch] = useState(false);
+  const [keyword, setKeyword] = useState('');
+  const [minFollowers, setMinFollowers] = useState('');
+  const [language, setLanguage] = useState('ja');
+  const [candidates, setCandidates] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [searching, setSearching] = useState(false);
+  const [adding, setAdding] = useState(false);
+  const [searchError, setSearchError] = useState('');
+
   const fetchCompetitors = async () => {
     try {
       const params = currentAccount ? `?accountId=${currentAccount.id}` : '';
@@ -57,6 +68,75 @@ export default function Competitors() {
     }
   };
 
+  // Auto-search handlers
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!keyword.trim()) return;
+    setSearching(true);
+    setSearchError('');
+    setCandidates([]);
+    setSelectedIds(new Set());
+    try {
+      const data = await post('/competitors/search', {
+        keyword: keyword.trim(),
+        minFollowers: minFollowers ? parseInt(minFollowers) : undefined,
+        language: language || undefined,
+        accountId: currentAccount?.id
+      });
+      setCandidates(data);
+      if (data.length === 0) {
+        setSearchError('該当するアカウントが見つかりませんでした');
+      }
+    } catch (err) {
+      setSearchError(err.message || '検索に失敗しました');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const toggleSelect = (userId) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) {
+        next.delete(userId);
+      } else {
+        next.add(userId);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === candidates.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(candidates.map(c => c.user_id)));
+    }
+  };
+
+  const handleBulkAdd = async () => {
+    if (selectedIds.size === 0) return;
+    setAdding(true);
+    try {
+      const usersToAdd = candidates.filter(c => selectedIds.has(c.user_id));
+      const result = await post('/competitors/bulk', {
+        users: usersToAdd,
+        accountId: currentAccount?.id
+      });
+      // Remove added users from candidates
+      setCandidates(prev => prev.filter(c => !selectedIds.has(c.user_id)));
+      setSelectedIds(new Set());
+      fetchCompetitors();
+      if (result.message) {
+        setSearchError('');
+      }
+    } catch (err) {
+      setSearchError(err.message || '追加に失敗しました');
+    } finally {
+      setAdding(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -70,28 +150,172 @@ export default function Competitors() {
         </button>
       </div>
 
-      {/* Add form */}
-      <form onSubmit={handleAdd} className="flex gap-2">
-        <input
-          type="text"
-          value={handle}
-          onChange={(e) => setHandle(e.target.value)}
-          placeholder="@handle を入力"
-          className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-        />
-        <button
-          type="submit"
-          disabled={loading || !handle.trim()}
-          className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          追加
-        </button>
-      </form>
+      {/* Manual add form */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-gray-700">手動追加</h3>
+        <form onSubmit={handleAdd} className="flex gap-2">
+          <input
+            type="text"
+            value={handle}
+            onChange={(e) => setHandle(e.target.value)}
+            placeholder="@handle を入力"
+            className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          />
+          <button
+            type="submit"
+            disabled={loading || !handle.trim()}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+          >
+            追加
+          </button>
+        </form>
+      </div>
 
       {error && <p className="text-sm text-red-500">{error}</p>}
 
+      {/* Auto-search section */}
+      <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-gray-700">自動検索</h3>
+          <button
+            onClick={() => setShowSearch(!showSearch)}
+            className="text-sm text-blue-600 hover:text-blue-700"
+          >
+            {showSearch ? '閉じる' : '検索パネルを開く'}
+          </button>
+        </div>
+
+        {showSearch && (
+          <div className="space-y-4">
+            <p className="text-xs text-gray-500">
+              キーワードやハッシュタグで検索し、関連するアカウントを自動で発見します
+            </p>
+            <form onSubmit={handleSearch} className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-500 mb-1">キーワード / ハッシュタグ</label>
+                <input
+                  type="text"
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="例: #マーケティング, AI活用, プログラミング"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">最低フォロワー数</label>
+                  <input
+                    type="number"
+                    value={minFollowers}
+                    onChange={(e) => setMinFollowers(e.target.value)}
+                    placeholder="例: 1000"
+                    min="0"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">言語</label>
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  >
+                    <option value="ja">日本語</option>
+                    <option value="en">英語</option>
+                    <option value="">すべて</option>
+                  </select>
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={searching || !keyword.trim()}
+                className="w-full px-4 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
+              >
+                {searching ? '検索中...' : '競合アカウントを検索'}
+              </button>
+            </form>
+
+            {searchError && <p className="text-sm text-red-500">{searchError}</p>}
+
+            {/* Search results */}
+            {candidates.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-gray-600">
+                    {candidates.length}件のアカウントが見つかりました
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={toggleSelectAll}
+                      className="text-xs text-blue-600 hover:text-blue-700"
+                    >
+                      {selectedIds.size === candidates.length ? 'すべて解除' : 'すべて選択'}
+                    </button>
+                    <button
+                      onClick={handleBulkAdd}
+                      disabled={adding || selectedIds.size === 0}
+                      className="px-3 py-1.5 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      {adding ? '追加中...' : `選択した${selectedIds.size}件を追加`}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {candidates.map(c => (
+                    <label
+                      key={c.user_id}
+                      className={`flex items-start gap-3 p-3 border rounded-lg cursor-pointer transition-colors ${
+                        selectedIds.has(c.user_id)
+                          ? 'border-blue-400 bg-blue-50'
+                          : 'border-gray-200 hover:bg-gray-50'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(c.user_id)}
+                        onChange={() => toggleSelect(c.user_id)}
+                        className="mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {c.profile_image_url && (
+                            <img
+                              src={c.profile_image_url}
+                              alt=""
+                              className="w-8 h-8 rounded-full flex-shrink-0"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-medium text-sm text-gray-900 truncate">
+                              {c.name}
+                            </p>
+                            <p className="text-xs text-gray-500">@{c.handle}</p>
+                          </div>
+                        </div>
+                        {c.description && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{c.description}</p>
+                        )}
+                        <div className="flex flex-wrap gap-3 mt-1 text-xs text-gray-400">
+                          <span>フォロワー: {formatNumber(c.followers_count)}</span>
+                          <span>ツイート数: {formatNumber(c.tweet_count)}</span>
+                          <span>検索ヒット: {c.matched_tweets}件</span>
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Competitor list */}
       <div className="space-y-3">
+        <h3 className="text-sm font-semibold text-gray-700">
+          登録済み ({competitors.length}件)
+        </h3>
         {competitors.length === 0 && (
           <p className="text-sm text-gray-400 py-8 text-center">
             監視対象アカウントがありません

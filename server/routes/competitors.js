@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { getUserByHandle } = require('../services/x-api');
+const { getUserByHandle, searchRecentTweets } = require('../services/x-api');
 const { calculateEngagementRate } = require('../services/analytics');
 const { fetchAllCompetitorTweets } = require('../services/scheduler');
 
@@ -118,6 +118,126 @@ router.get('/:id/tweets', async (req, res) => {
     if (error) throw error;
 
     res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/competitors/search - Auto-discover competitor accounts by keyword
+router.post('/search', async (req, res) => {
+  try {
+    const { keyword, minFollowers, language, accountId } = req.body;
+    if (!keyword) return res.status(400).json({ error: 'keyword is required' });
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+
+    // Build search query
+    let query = keyword;
+    if (language) {
+      query += ` lang:${language}`;
+    }
+    // Exclude retweets and replies to get original content authors
+    query += ' -is:retweet -is:reply';
+
+    const result = await searchRecentTweets(query, accountId, 100);
+
+    if (!result.data || !result.includes?.users) {
+      return res.json([]);
+    }
+
+    // Get existing competitor handles to exclude
+    const sb = getDb();
+    let existingQuery = sb.from('competitors').select('handle');
+    if (accountId) {
+      existingQuery = existingQuery.eq('account_id', accountId);
+    }
+    const { data: existingRows } = await existingQuery;
+    const existingHandles = new Set((existingRows || []).map(r => r.handle.toLowerCase()));
+
+    // Deduplicate users and calculate tweet counts from search results
+    const userTweetCounts = {};
+    for (const tweet of result.data) {
+      const authorId = tweet.author_id;
+      userTweetCounts[authorId] = (userTweetCounts[authorId] || 0) + 1;
+    }
+
+    // Build candidate list
+    const candidates = result.includes.users
+      .filter(user => {
+        // Exclude already-registered competitors
+        if (existingHandles.has(user.username.toLowerCase())) return false;
+        // Filter by minimum followers
+        const followers = user.public_metrics?.followers_count || 0;
+        if (minFollowers && followers < minFollowers) return false;
+        return true;
+      })
+      .map(user => ({
+        user_id: user.id,
+        handle: user.username,
+        name: user.name,
+        description: user.description || '',
+        profile_image_url: user.profile_image_url || '',
+        followers_count: user.public_metrics?.followers_count || 0,
+        following_count: user.public_metrics?.following_count || 0,
+        tweet_count: user.public_metrics?.tweet_count || 0,
+        matched_tweets: userTweetCounts[user.id] || 0
+      }))
+      .sort((a, b) => b.followers_count - a.followers_count);
+
+    res.json(candidates);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/competitors/bulk - Add multiple competitors at once
+router.post('/bulk', async (req, res) => {
+  try {
+    const { users, accountId } = req.body;
+    if (!users || !Array.isArray(users) || users.length === 0) {
+      return res.status(400).json({ error: 'users array is required' });
+    }
+
+    const sb = getDb();
+
+    // Check max accounts limit
+    const { data: maxRow } = await sb.from('settings').select('value').eq('key', 'competitor_max_accounts').single();
+    const maxAccounts = maxRow ? parseInt(maxRow.value) : 10;
+
+    let countQuery = sb.from('competitors').select('*', { count: 'exact', head: true });
+    if (accountId) {
+      countQuery = countQuery.eq('account_id', accountId);
+    }
+    const { count: currentCount } = await countQuery;
+
+    const remaining = maxAccounts - currentCount;
+    if (remaining <= 0) {
+      return res.status(400).json({
+        error: `登録上限に達しています (${maxAccounts}件)。設定で上限を変更してください。`
+      });
+    }
+
+    const toInsert = users.slice(0, remaining).map(u => ({
+      account_id: accountId || null,
+      handle: u.handle.replace('@', ''),
+      name: u.name,
+      user_id: u.user_id,
+      followers_count: u.followers_count || 0
+    }));
+
+    const { data, error } = await sb.from('competitors')
+      .upsert(toInsert, { onConflict: 'account_id,handle', ignoreDuplicates: true })
+      .select();
+
+    if (error) throw error;
+
+    const skipped = users.length - toInsert.length;
+    res.json({
+      added: data || [],
+      skipped_limit: skipped,
+      message: skipped > 0
+        ? `${toInsert.length}件追加しました（上限により${skipped}件スキップ）`
+        : `${(data || []).length}件追加しました`
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
