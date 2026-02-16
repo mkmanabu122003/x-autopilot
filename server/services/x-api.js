@@ -132,4 +132,57 @@ async function getUserTweets(userId, maxResults = 100, accountId) {
   return data;
 }
 
-module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials };
+async function verifyCredentials(accountId) {
+  const credentials = await getAccountCredentials(accountId);
+  const result = { oauth: false, bearer: false, user: null, errors: [] };
+
+  // Verify OAuth credentials via GET /2/users/me
+  try {
+    const url = `${API_BASE}/2/users/me`;
+    const params = { 'user.fields': 'username,name,profile_image_url' };
+    const fullUrl = `${url}?${new URLSearchParams(params)}`;
+    const authHeader = getOAuthHeader('GET', url, credentials, params);
+
+    const response = await fetch(fullUrl, {
+      headers: { 'Authorization': authHeader }
+    });
+
+    if (response.ok) {
+      const data = await response.json();
+      result.oauth = true;
+      result.user = data.data || null;
+    } else {
+      const error = await response.json().catch(() => ({}));
+      result.errors.push(`OAuth認証エラー (${response.status}): ${JSON.stringify(error)}`);
+    }
+  } catch (err) {
+    result.errors.push(`OAuth接続エラー: ${err.message}`);
+  }
+
+  // Verify Bearer token if set
+  if (credentials.bearer_token) {
+    try {
+      const handle = result.user?.username || credentials.handle;
+      if (handle) {
+        const cleanHandle = handle.replace('@', '');
+        const fullUrl = `${API_BASE}/2/users/by/username/${cleanHandle}?${new URLSearchParams({ 'user.fields': 'username' })}`;
+        const response = await fetch(fullUrl, {
+          headers: { 'Authorization': `Bearer ${credentials.bearer_token}` }
+        });
+
+        if (response.ok) {
+          result.bearer = true;
+        } else {
+          const error = await response.json().catch(() => ({}));
+          result.errors.push(`Bearerトークンエラー (${response.status}): ${JSON.stringify(error)}`);
+        }
+      }
+    } catch (err) {
+      result.errors.push(`Bearer接続エラー: ${err.message}`);
+    }
+  }
+
+  return result;
+}
+
+module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials };
