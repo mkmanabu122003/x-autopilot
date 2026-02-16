@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { getUserByHandle, searchRecentTweets } = require('../services/x-api');
+const { getUserByHandle, getUserTweets, searchRecentTweets } = require('../services/x-api');
 const { calculateEngagementRate } = require('../services/analytics');
 const { fetchAllCompetitorTweets } = require('../services/scheduler');
 const { getAIProvider } = require('../services/ai-provider');
@@ -160,23 +160,69 @@ router.post('/suggest-keywords', async (req, res) => {
       } else {
         // Build profile text from account info and X profile
         let profileText = '';
+        let userId = null;
         try {
           const userData = await getUserByHandle(account.handle, accountId);
           const profile = userData.data;
           profileText = profile?.description || '';
+          userId = profile?.id || null;
         } catch (err) {
           // X API lookup failed, use display_name only
         }
 
+        // Fetch user's recent tweets from X API
+        let recentTweetsText = '';
+        if (userId) {
+          try {
+            const tweetsData = await getUserTweets(userId, 20, accountId);
+            if (tweetsData.data && tweetsData.data.length > 0) {
+              const tweetTexts = tweetsData.data
+                .map(t => t.text)
+                .filter(t => t && !t.startsWith('RT @'))
+                .slice(0, 15);
+              if (tweetTexts.length > 0) {
+                recentTweetsText = tweetTexts.join('\n');
+              }
+            }
+          } catch (err) {
+            // Tweet fetch failed, continue without tweets
+          }
+        }
+
+        // Also fetch user's posted tweets from database
+        let dbTweetsText = '';
+        try {
+          const { data: myPosts } = await sb.from('my_posts')
+            .select('text')
+            .eq('account_id', accountId)
+            .eq('status', 'posted')
+            .order('posted_at', { ascending: false })
+            .limit(15);
+          if (myPosts && myPosts.length > 0) {
+            dbTweetsText = myPosts.map(p => p.text).filter(Boolean).join('\n');
+          }
+        } catch (err) {
+          // DB fetch failed, continue without
+        }
+
+        // Combine all tweet texts (deduplicate by removing overlap)
+        const allTweets = recentTweetsText || dbTweetsText
+          ? [recentTweetsText, dbTweetsText].filter(Boolean).join('\n')
+          : '';
+
         const accountName = account.display_name || account.handle;
+        const tweetSection = allTweets
+          ? `\n最近のツイート:\n${allTweets}\n`
+          : '';
         const prompt = `以下のXアカウントの情報を分析し、このアカウントの競合を見つけるための検索キーワードを提案してください。
 
 アカウント名: ${accountName}
 ハンドル: @${account.handle}
 ${profileText ? `プロフィール: ${profileText}` : '（プロフィール未設定）'}
-
-このアカウントと同じ分野・ジャンルで活動している競合アカウントを見つけるために、X上で検索すべきキーワードを5〜8個提案してください。
+${tweetSection}
+このアカウントのプロフィールとツイート内容を踏まえて、同じ分野・ジャンルで活動している競合アカウントを見つけるために、X上で検索すべきキーワードを5〜8個提案してください。
 ハッシュタグは不要です。各キーワードは1〜3語の短いフレーズにしてください。
+ツイートの主要トピックや専門分野に関連するキーワードを優先してください。
 
 以下の形式でJSON配列のみ出力してください:
 ["キーワード1", "キーワード2", "キーワード3"]`;
@@ -391,27 +437,45 @@ router.post('/bulk', async (req, res) => {
       });
     }
 
-    const toInsert = users.slice(0, remaining).map(u => ({
-      account_id: accountId || null,
-      handle: u.handle.replace('@', ''),
-      name: u.name,
-      user_id: u.user_id,
-      followers_count: u.followers_count || 0
-    }));
+    // Fetch existing competitors to avoid duplicates
+    let existingQuery = sb.from('competitors').select('handle, user_id');
+    if (accountId) {
+      existingQuery = existingQuery.eq('account_id', accountId);
+    }
+    const { data: existingRows } = await existingQuery;
+    const existingHandles = new Set((existingRows || []).map(r => r.handle.toLowerCase()));
+    const existingUserIds = new Set((existingRows || []).map(r => r.user_id));
 
-    const { data, error } = await sb.from('competitors')
-      .upsert(toInsert, { onConflict: 'account_id,handle', ignoreDuplicates: true })
-      .select();
+    const toInsert = users.slice(0, remaining)
+      .map(u => ({
+        account_id: accountId || null,
+        handle: u.handle.replace('@', ''),
+        name: u.name,
+        user_id: u.user_id,
+        followers_count: u.followers_count || 0
+      }))
+      .filter(u => !existingHandles.has(u.handle.toLowerCase()) && !existingUserIds.has(u.user_id));
 
-    if (error) throw error;
+    let data = [];
+    if (toInsert.length > 0) {
+      const result = await sb.from('competitors')
+        .insert(toInsert)
+        .select();
+
+      if (result.error) throw result.error;
+      data = result.data || [];
+    }
 
     const skipped = users.length - toInsert.length;
+    const skippedByLimit = Math.max(0, users.length - remaining);
+    const skippedByDuplicate = skipped - skippedByLimit;
     res.json({
-      added: data || [],
-      skipped_limit: skipped,
+      added: data,
+      skipped_limit: skippedByLimit,
+      skipped_duplicate: skippedByDuplicate,
       message: skipped > 0
-        ? `${toInsert.length}件追加しました（上限により${skipped}件スキップ）`
-        : `${(data || []).length}件追加しました`
+        ? `${data.length}件追加しました${skippedByLimit > 0 ? `（上限により${skippedByLimit}件スキップ）` : ''}${skippedByDuplicate > 0 ? `（重複${skippedByDuplicate}件スキップ）` : ''}`
+        : `${data.length}件追加しました`
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
