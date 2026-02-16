@@ -214,18 +214,21 @@ router.post('/suggest-keywords', async (req, res) => {
         const tweetSection = allTweets
           ? `\n最近のツイート:\n${allTweets}\n`
           : '';
-        const prompt = `以下のXアカウントの情報を分析し、このアカウントの競合を見つけるための検索キーワードを提案してください。
+        const prompt = `あなたはX（Twitter）の競合分析の専門家です。以下のアカウント情報をもとに、競合アカウントを検索するためのキーワードをJSON配列で提案してください。
 
 アカウント名: ${accountName}
 ハンドル: @${account.handle}
-${profileText ? `プロフィール: ${profileText}` : '（プロフィール未設定）'}
+${profileText ? `プロフィール: ${profileText}` : ''}
 ${tweetSection}
-このアカウントのプロフィールとツイート内容を踏まえて、同じ分野・ジャンルで活動している競合アカウントを見つけるために、X上で検索すべきキーワードを5〜8個提案してください。
-ハッシュタグは不要です。各キーワードは1〜3語の短いフレーズにしてください。
-ツイートの主要トピックや専門分野に関連するキーワードを優先してください。
+【ルール】
+- 必ず5〜8個のキーワードをJSON配列で出力すること
+- 情報が少ない場合でも、アカウント名やハンドル名から推測して提案すること
+- ハッシュタグは不要。各キーワードは1〜3語の短いフレーズにすること
+- 説明文は不要。JSON配列のみ出力すること
+- ツイート内容がある場合は、その主要トピックや専門分野に関連するキーワードを優先すること
 
-以下の形式でJSON配列のみ出力してください:
-["キーワード1", "キーワード2", "キーワード3"]`;
+出力形式（この形式以外は禁止）:
+["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"]`;
 
         try {
           let response;
@@ -236,7 +239,7 @@ ${tweetSection}
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 256 }
+                generationConfig: { maxOutputTokens: 256, responseMimeType: 'application/json' }
               })
             });
           } else {
@@ -250,6 +253,7 @@ ${tweetSection}
               body: JSON.stringify({
                 model: modelName,
                 max_tokens: 256,
+                system: 'あなたはJSON配列のみを出力するアシスタントです。説明文や前置きは一切不要です。必ずJSON配列だけを返してください。',
                 messages: [{ role: 'user', content: prompt }]
               })
             });
