@@ -5,7 +5,8 @@ const {
   getTopPosts,
   getHourlyPerformance,
   getWeeklyEngagement,
-  getPostTypePerformance
+  getPostTypePerformance,
+  getQuoteSuggestions
 } = require('../services/analytics');
 
 // GET /api/analytics/dashboard - Dashboard summary data
@@ -56,6 +57,19 @@ router.get('/post-types', async (req, res) => {
   try {
     const data = await getPostTypePerformance();
     res.json(data);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// GET /api/analytics/quote-suggestions - Recommended tweets for quote RT
+router.get('/quote-suggestions', async (req, res) => {
+  try {
+    const accountId = req.query.accountId;
+    const limit = parseInt(req.query.limit) || 10;
+    const minEngagementRate = parseFloat(req.query.minEngagementRate) || 0;
+    const suggestions = await getQuoteSuggestions(accountId, { limit, minEngagementRate });
+    res.json(suggestions);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

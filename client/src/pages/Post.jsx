@@ -13,6 +13,7 @@ export default function Post() {
   const location = useLocation();
   const initialMode = location.state?.mode || 'new';
   const initialTarget = location.state?.targetTweetId || '';
+  const initialText = location.state?.prefillText || '';
 
   const [activeTab, setActiveTab] = useState(initialMode);
   const [postKey, setPostKey] = useState(0);
@@ -47,6 +48,7 @@ export default function Post() {
         key={`${activeTab}-${postKey}`}
         mode={activeTab}
         targetTweetId={activeTab === initialMode ? initialTarget : ''}
+        initialText={activeTab === initialMode ? initialText : ''}
         onPosted={handlePosted}
       />
 
