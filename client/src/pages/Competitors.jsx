@@ -243,7 +243,7 @@ export default function Competitors() {
                 <div className="space-y-2">
                   {suggestions.profile && suggestions.profile.length > 0 && (
                     <div>
-                      <p className="text-xs text-gray-400 mb-1">プロフィールから提案</p>
+                      <p className="text-xs text-gray-400 mb-1">プロフィール・ツイートから提案</p>
                       <div className="flex flex-wrap gap-1.5">
                         {suggestions.profile.map((kw, i) => (
                           <button
