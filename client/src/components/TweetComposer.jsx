@@ -7,8 +7,8 @@ import PostConfirmDialog from './PostConfirmDialog';
 
 const MAX_CHARS = 280;
 
-export default function TweetComposer({ mode = 'new', targetTweetId: initialTarget, onPosted }) {
-  const [text, setText] = useState('');
+export default function TweetComposer({ mode = 'new', targetTweetId: initialTarget, initialText = '', onPosted }) {
+  const [text, setText] = useState(initialText);
   const [targetTweetId, setTargetTweetId] = useState(initialTarget || '');
   const [scheduledAt, setScheduledAt] = useState('');
   const [showSchedule, setShowSchedule] = useState(false);
