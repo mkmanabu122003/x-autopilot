@@ -47,6 +47,9 @@ export default function Settings() {
   const [form, setForm] = useState({
     competitor_fetch_interval: '',
     monthly_budget_usd: '',
+    budget_x_api_usd: '',
+    budget_gemini_usd: '',
+    budget_claude_usd: '',
     system_prompt: '',
     default_hashtags: '',
     confirm_before_post: '',
@@ -418,6 +421,29 @@ export default function Settings() {
               />
               <span className="text-sm text-gray-500">USD（約 {Math.round((costSettings.monthly_budget_usd || 33) * 150).toLocaleString()}円）</span>
             </div>
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-2">API別予算</p>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="block text-xs text-sky-700 mb-1">X Developer API</label>
+                  <input type="number" value={form.budget_x_api_usd}
+                    onChange={(e) => handleChange('budget_x_api_usd', e.target.value)}
+                    min={0} step={1} placeholder="10" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-emerald-700 mb-1">Gemini API</label>
+                  <input type="number" value={form.budget_gemini_usd}
+                    onChange={(e) => handleChange('budget_gemini_usd', e.target.value)}
+                    min={0} step={1} placeholder="10" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-orange-700 mb-1">Claude API</label>
+                  <input type="number" value={form.budget_claude_usd}
+                    onChange={(e) => handleChange('budget_claude_usd', e.target.value)}
+                    min={0} step={1} placeholder="13" className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm" />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Task Model Settings */}
@@ -548,54 +574,41 @@ export default function Settings() {
           {usage && (
             <div className="bg-white border border-gray-200 rounded-lg p-4">
               <h3 className="font-semibold text-gray-900 mb-3">API利用状況（今月）</h3>
-              <div className="space-y-3">
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">合計費用</span>
-                  <span className="font-medium">{formatCurrency(usage.totalCostUsd)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">予算消化率</span>
-                  <span className={`font-medium ${usage.budgetUsedPercent > 80 ? 'text-yellow-600' : 'text-gray-900'}`}>
-                    {formatPercent(usage.budgetUsedPercent)}
-                  </span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className={`h-2 rounded-full ${usage.budgetUsedPercent > 80 ? 'bg-yellow-500' : 'bg-blue-500'}`}
-                    style={{ width: `${Math.min(usage.budgetUsedPercent, 100)}%` }}
-                  />
-                </div>
 
-                {/* Provider breakdown */}
-                {usage.byType && usage.byType.length > 0 && (
-                  <div className="border-t border-gray-100 pt-3 mt-3">
-                    <p className="text-xs font-medium text-gray-500 mb-2">プロバイダー別内訳</p>
-                    <div className="space-y-1.5">
-                      {usage.byType.map(item => {
-                        const label = item.api_type === 'claude' ? 'Claude'
-                          : item.api_type === 'gemini' ? 'Gemini'
-                          : item.api_type === 'x_read' ? 'X API (読み取り)'
-                          : item.api_type === 'x_write' ? 'X API (書き込み)'
-                          : item.api_type === 'x_search' ? 'X API (検索)'
-                          : item.api_type === 'x_user' ? 'X API (ユーザー)'
-                          : item.api_type;
-                        const color = item.api_type === 'claude' ? 'bg-orange-400'
-                          : item.api_type === 'gemini' ? 'bg-blue-400'
-                          : 'bg-gray-400';
-                        return (
-                          <div key={item.api_type} className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2">
-                              <span className={`w-2 h-2 rounded-full ${color}`} />
-                              <span className="text-gray-600">{label}</span>
-                              <span className="text-gray-400">({item.call_count}回)</span>
-                            </div>
-                            <span className="font-medium text-gray-700">{formatCurrency(item.total_cost)}</span>
-                          </div>
-                        );
-                      })}
+              <div className="flex justify-between text-sm mb-4 pb-3 border-b border-gray-100">
+                <span className="text-gray-600">合計費用</span>
+                <span className="font-bold text-gray-900">{formatCurrency(usage.totalCostUsd)}</span>
+              </div>
+
+              <div className="space-y-4">
+                {(usage.apis || []).map(api => {
+                  const labels = { x: 'X Developer API', gemini: 'Gemini API', claude: 'Claude API' };
+                  const colors = { x: 'bg-sky-500', gemini: 'bg-emerald-500', claude: 'bg-orange-500' };
+                  const textColors = { x: 'text-sky-700', gemini: 'text-emerald-700', claude: 'text-orange-700' };
+                  const bgColors = { x: 'bg-sky-50', gemini: 'bg-emerald-50', claude: 'bg-orange-50' };
+                  return (
+                    <div key={api.category} className={`rounded-lg p-3 ${bgColors[api.category] || 'bg-gray-50'}`}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className={`text-sm font-medium ${textColors[api.category] || 'text-gray-700'}`}>
+                          {labels[api.category] || api.category}
+                        </span>
+                        <span className="text-xs text-gray-500">{api.call_count}回</span>
+                      </div>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="text-gray-600">{formatCurrency(api.total_cost)} / {formatCurrency(api.budget_usd)}</span>
+                        <span className={`font-medium ${api.budget_used_percent > 80 ? 'text-red-600' : 'text-gray-700'}`}>
+                          {formatPercent(api.budget_used_percent)}
+                        </span>
+                      </div>
+                      <div className="w-full bg-white/60 rounded-full h-2">
+                        <div
+                          className={`h-2 rounded-full transition-all ${api.budget_used_percent > 80 ? 'bg-red-500' : (colors[api.category] || 'bg-blue-500')}`}
+                          style={{ width: `${Math.min(api.budget_used_percent, 100)}%` }}
+                        />
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
             </div>
           )}
