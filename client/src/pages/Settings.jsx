@@ -513,8 +513,8 @@ export default function Settings() {
                   <textarea
                     value={promptData.system_prompt || ''}
                     onChange={(e) => setPromptData(prev => ({ ...prev, system_prompt: e.target.value }))}
-                    rows={6}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none font-mono"
+                    rows={10}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y font-mono min-h-[120px]"
                   />
                 </div>
                 <div className="flex gap-2">
@@ -548,7 +548,7 @@ export default function Settings() {
           {usage && (
             <div className="bg-white border border-gray-200 rounded-lg p-4">
               <h3 className="font-semibold text-gray-900 mb-3">API利用状況（今月）</h3>
-              <div className="space-y-2">
+              <div className="space-y-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">合計費用</span>
                   <span className="font-medium">{formatCurrency(usage.totalCostUsd)}</span>
@@ -565,6 +565,37 @@ export default function Settings() {
                     style={{ width: `${Math.min(usage.budgetUsedPercent, 100)}%` }}
                   />
                 </div>
+
+                {/* Provider breakdown */}
+                {usage.byType && usage.byType.length > 0 && (
+                  <div className="border-t border-gray-100 pt-3 mt-3">
+                    <p className="text-xs font-medium text-gray-500 mb-2">プロバイダー別内訳</p>
+                    <div className="space-y-1.5">
+                      {usage.byType.map(item => {
+                        const label = item.api_type === 'claude' ? 'Claude'
+                          : item.api_type === 'gemini' ? 'Gemini'
+                          : item.api_type === 'x_read' ? 'X API (読み取り)'
+                          : item.api_type === 'x_write' ? 'X API (書き込み)'
+                          : item.api_type === 'x_search' ? 'X API (検索)'
+                          : item.api_type === 'x_user' ? 'X API (ユーザー)'
+                          : item.api_type;
+                        const color = item.api_type === 'claude' ? 'bg-orange-400'
+                          : item.api_type === 'gemini' ? 'bg-blue-400'
+                          : 'bg-gray-400';
+                        return (
+                          <div key={item.api_type} className="flex items-center justify-between text-xs">
+                            <div className="flex items-center gap-2">
+                              <span className={`w-2 h-2 rounded-full ${color}`} />
+                              <span className="text-gray-600">{label}</span>
+                              <span className="text-gray-400">({item.call_count}回)</span>
+                            </div>
+                            <span className="font-medium text-gray-700">{formatCurrency(item.total_cost)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -576,11 +607,11 @@ export default function Settings() {
               <textarea
                 value={form.system_prompt}
                 onChange={(e) => handleChange('system_prompt', e.target.value)}
-                rows={6}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-none font-mono"
+                rows={12}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y font-mono min-h-[120px]"
               />
               <p className="text-xs text-gray-400 mt-1">
-                変数: {'{postType}'}, {'{userInput}'}, {'{competitorContext}'}
+                変数: {'{postType}'}, {'{userInput}'}, {'{competitorContext}'} &#x2502; ドラッグでサイズ変更可能
               </p>
             </div>
           </div>
