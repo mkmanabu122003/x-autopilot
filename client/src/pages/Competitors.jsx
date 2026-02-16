@@ -14,7 +14,13 @@ export default function Competitors() {
   const [showSearch, setShowSearch] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [minFollowers, setMinFollowers] = useState('');
+  const [maxFollowers, setMaxFollowers] = useState('');
   const [language, setLanguage] = useState('ja');
+  const [minLikes, setMinLikes] = useState('');
+  const [minRetweets, setMinRetweets] = useState('');
+  const [hasMedia, setHasMedia] = useState(false);
+  const [hasLinks, setHasLinks] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [searching, setSearching] = useState(false);
@@ -80,7 +86,12 @@ export default function Competitors() {
       const data = await post('/competitors/search', {
         keyword: keyword.trim(),
         minFollowers: minFollowers ? parseInt(minFollowers) : undefined,
+        maxFollowers: maxFollowers ? parseInt(maxFollowers) : undefined,
         language: language || undefined,
+        minLikes: minLikes ? parseInt(minLikes) : undefined,
+        minRetweets: minRetweets ? parseInt(minRetweets) : undefined,
+        hasMedia: hasMedia || undefined,
+        hasLinks: hasLinks || undefined,
         accountId: currentAccount?.id
       });
       setCandidates(data);
@@ -226,6 +237,81 @@ export default function Competitors() {
                   </select>
                 </div>
               </div>
+
+              {/* Advanced parameters toggle */}
+              <button
+                type="button"
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+              >
+                <span className={`inline-block transition-transform ${showAdvanced ? 'rotate-90' : ''}`}>&#9654;</span>
+                詳細条件
+              </button>
+
+              {showAdvanced && (
+                <div className="space-y-3 pl-2 border-l-2 border-purple-200">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">最大フォロワー数</label>
+                      <input
+                        type="number"
+                        value={maxFollowers}
+                        onChange={(e) => setMaxFollowers(e.target.value)}
+                        placeholder="例: 100000"
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">最低いいね数</label>
+                      <input
+                        type="number"
+                        value={minLikes}
+                        onChange={(e) => setMinLikes(e.target.value)}
+                        placeholder="例: 10"
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">最低RT数</label>
+                      <input
+                        type="number"
+                        value={minRetweets}
+                        onChange={(e) => setMinRetweets(e.target.value)}
+                        placeholder="例: 5"
+                        min="0"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                    </div>
+                    <div className="flex items-end pb-1">
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={hasMedia}
+                            onChange={(e) => setHasMedia(e.target.checked)}
+                            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">画像/動画あり</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={hasLinks}
+                            onChange={(e) => setHasLinks(e.target.checked)}
+                            className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                          />
+                          <span className="text-xs text-gray-600">リンクあり</span>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={searching || !keyword.trim()}

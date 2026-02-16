@@ -126,17 +126,28 @@ router.get('/:id/tweets', async (req, res) => {
 // POST /api/competitors/search - Auto-discover competitor accounts by keyword
 router.post('/search', async (req, res) => {
   try {
-    const { keyword, minFollowers, language, accountId } = req.body;
+    const {
+      keyword, minFollowers, maxFollowers, language, accountId,
+      minLikes, minRetweets, hasMedia, hasLinks, verified, excludeHandles
+    } = req.body;
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
     if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
-    // Build search query
+    // Build search query with advanced operators
     let query = keyword;
-    if (language) {
-      query += ` lang:${language}`;
-    }
+    if (language) query += ` lang:${language}`;
+    if (minLikes) query += ` min_faves:${parseInt(minLikes)}`;
+    if (minRetweets) query += ` min_retweets:${parseInt(minRetweets)}`;
+    if (hasMedia) query += ' has:media';
+    if (hasLinks) query += ' has:links';
     // Exclude retweets and replies to get original content authors
     query += ' -is:retweet -is:reply';
+    // Exclude specific handles
+    if (excludeHandles && Array.isArray(excludeHandles)) {
+      for (const h of excludeHandles) {
+        query += ` -from:${h.replace('@', '')}`;
+      }
+    }
 
     const result = await searchRecentTweets(query, accountId, 100);
 
@@ -163,11 +174,11 @@ router.post('/search', async (req, res) => {
     // Build candidate list
     const candidates = result.includes.users
       .filter(user => {
-        // Exclude already-registered competitors
         if (existingHandles.has(user.username.toLowerCase())) return false;
-        // Filter by minimum followers
         const followers = user.public_metrics?.followers_count || 0;
         if (minFollowers && followers < minFollowers) return false;
+        if (maxFollowers && followers > maxFollowers) return false;
+        if (verified && !user.verified) return false;
         return true;
       })
       .map(user => ({
