@@ -131,7 +131,7 @@ router.post('/suggest-keywords', async (req, res) => {
     if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
     const sb = getDb();
-    const suggestions = { profile: [], competitor: [] };
+    const suggestions = { profile: [], competitor: [], debug: '' };
 
     // 1. Get the user's own X account profile for AI-based suggestions
     const { data: account } = await sb.from('x_accounts')
@@ -140,44 +140,74 @@ router.post('/suggest-keywords', async (req, res) => {
       .single();
 
     if (account) {
-      try {
-        const userData = await getUserByHandle(account.handle, accountId);
-        const profile = userData.data;
-        if (profile && profile.description) {
-          const providerName = account.default_ai_provider || 'claude';
-          const aiProvider = getAIProvider(providerName);
+      // Determine which AI provider to use and ensure model matches
+      let providerName = null;
+      let modelName = null;
 
-          const prompt = `以下のXアカウントのプロフィールを分析し、このアカウントの競合を見つけるための検索キーワードを提案してください。
+      if (process.env.GEMINI_API_KEY) {
+        providerName = 'gemini';
+        const savedModel = account.default_ai_model || '';
+        modelName = savedModel.startsWith('gemini') ? savedModel : 'gemini-2.0-flash';
+      }
+      if (process.env.CLAUDE_API_KEY) {
+        providerName = 'claude';
+        const savedModel = account.default_ai_model || '';
+        modelName = savedModel.startsWith('claude') ? savedModel : 'claude-sonnet-4-20250514';
+      }
 
-アカウント名: ${profile.name || account.display_name}
+      if (!providerName) {
+        suggestions.debug = 'AIプロバイダーのAPIキーが設定されていません（CLAUDE_API_KEY または GEMINI_API_KEY）';
+      } else {
+        // Build profile text from account info and X profile
+        let profileText = '';
+        try {
+          const userData = await getUserByHandle(account.handle, accountId);
+          const profile = userData.data;
+          profileText = profile?.description || '';
+        } catch (err) {
+          // X API lookup failed, use display_name only
+        }
+
+        const accountName = account.display_name || account.handle;
+        const prompt = `以下のXアカウントの情報を分析し、このアカウントの競合を見つけるための検索キーワードを提案してください。
+
+アカウント名: ${accountName}
 ハンドル: @${account.handle}
-プロフィール: ${profile.description}
+${profileText ? `プロフィール: ${profileText}` : '（プロフィール未設定）'}
 
-以下の形式でキーワードを5〜8個、JSON配列で出力してください。ハッシュタグは不要です。各キーワードは1〜3語の短いフレーズにしてください。
-例: ["AIマーケティング", "SNS運用", "コンテンツ戦略"]
+このアカウントと同じ分野・ジャンルで活動している競合アカウントを見つけるために、X上で検索すべきキーワードを5〜8個提案してください。
+ハッシュタグは不要です。各キーワードは1〜3語の短いフレーズにしてください。
 
-JSON配列のみ出力してください。`;
+以下の形式でJSON配列のみ出力してください:
+["キーワード1", "キーワード2", "キーワード3"]`;
 
-          const response = await fetch(
-            providerName === 'gemini'
-              ? `https://generativelanguage.googleapis.com/v1beta/models/${account.default_ai_model || 'gemini-2.0-flash'}:generateContent?key=${process.env.GEMINI_API_KEY}`
-              : 'https://api.anthropic.com/v1/messages',
-            providerName === 'gemini'
-              ? {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 256 } })
-                }
-              : {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
-                  body: JSON.stringify({
-                    model: account.default_ai_model || 'claude-sonnet-4-20250514',
-                    max_tokens: 256,
-                    messages: [{ role: 'user', content: prompt }]
-                  })
-                }
-          );
+        try {
+          let response;
+          if (providerName === 'gemini') {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+            response = await fetch(url, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { maxOutputTokens: 256 }
+              })
+            });
+          } else {
+            response = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': process.env.CLAUDE_API_KEY,
+                'anthropic-version': '2023-06-01'
+              },
+              body: JSON.stringify({
+                model: modelName,
+                max_tokens: 256,
+                messages: [{ role: 'user', content: prompt }]
+              })
+            });
+          }
 
           if (response.ok) {
             const data = await response.json();
@@ -187,12 +217,19 @@ JSON配列のみ出力してください。`;
             const match = text.match(/\[[\s\S]*?\]/);
             if (match) {
               suggestions.profile = JSON.parse(match[0]);
+            } else {
+              suggestions.debug = `AI応答のパースに失敗: ${text.substring(0, 100)}`;
             }
+          } else {
+            const errBody = await response.json().catch(() => ({}));
+            suggestions.debug = `AI API エラー (${response.status}): ${JSON.stringify(errBody).substring(0, 200)}`;
           }
+        } catch (err) {
+          suggestions.debug = `AI接続エラー: ${err.message}`;
         }
-      } catch (err) {
-        // Profile-based suggestions failed, continue with competitor-based
       }
+    } else {
+      suggestions.debug = 'アカウントが見つかりません';
     }
 
     // 2. Extract keywords from existing competitor tweets
@@ -207,7 +244,6 @@ JSON配列のみ出力してください。`;
         .limit(50);
 
       if (tweets && tweets.length > 0) {
-        // Simple keyword extraction: split texts, count word frequency
         const wordCounts = {};
         const stopWords = new Set([
           'の', 'に', 'は', 'を', 'た', 'が', 'で', 'て', 'と', 'し', 'れ', 'さ',
@@ -219,13 +255,10 @@ JSON配列のみ出力してください。`;
 
         for (const tweet of tweets) {
           if (!tweet.text) continue;
-          // Remove URLs, mentions, hashtags
           const cleaned = tweet.text
             .replace(/https?:\/\/\S+/g, '')
             .replace(/@\w+/g, '')
             .replace(/#\S+/g, '');
-
-          // Extract meaningful phrases (2-4 char sequences that appear frequently in Japanese)
           const words = cleaned.match(/[\u3040-\u9FFFa-zA-Z]{2,}/g) || [];
           for (const w of words) {
             if (stopWords.has(w) || w.length < 2) continue;
@@ -233,7 +266,6 @@ JSON配列のみ出力してください。`;
           }
         }
 
-        // Get top frequent words (appearing in 3+ tweets)
         suggestions.competitor = Object.entries(wordCounts)
           .filter(([, count]) => count >= 2)
           .sort((a, b) => b[1] - a[1])

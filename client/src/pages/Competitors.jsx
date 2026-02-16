@@ -286,7 +286,12 @@ export default function Competitors() {
                   )}
                   {(!suggestions.profile || suggestions.profile.length === 0) &&
                    (!suggestions.competitor || suggestions.competitor.length === 0) && (
-                    <p className="text-xs text-gray-400">候補が見つかりませんでした</p>
+                    <div>
+                      <p className="text-xs text-gray-400">候補が見つかりませんでした</p>
+                      {suggestions.debug && (
+                        <p className="text-xs text-orange-500 mt-1">{suggestions.debug}</p>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
