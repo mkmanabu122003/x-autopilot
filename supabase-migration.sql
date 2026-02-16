@@ -84,6 +84,7 @@ CREATE INDEX IF NOT EXISTS idx_my_posts_account_id ON my_posts(account_id);
 CREATE INDEX IF NOT EXISTS idx_api_usage_log_created_at ON api_usage_log(created_at);
 CREATE INDEX IF NOT EXISTS idx_api_usage_log_api_type ON api_usage_log(api_type);
 CREATE INDEX IF NOT EXISTS idx_competitors_account_id ON competitors(account_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_competitors_account_handle ON competitors(account_id, handle);
 
 -- Default settings
 INSERT INTO settings (key, value) VALUES
