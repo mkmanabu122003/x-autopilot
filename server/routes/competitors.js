@@ -4,6 +4,7 @@ const { getDb } = require('../db/database');
 const { getUserByHandle, searchRecentTweets } = require('../services/x-api');
 const { calculateEngagementRate } = require('../services/analytics');
 const { fetchAllCompetitorTweets } = require('../services/scheduler');
+const { getAIProvider } = require('../services/ai-provider');
 
 // GET /api/competitors - List all competitors (optionally filtered by account)
 router.get('/', async (req, res) => {
@@ -118,6 +119,130 @@ router.get('/:id/tweets', async (req, res) => {
     if (error) throw error;
 
     res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/competitors/suggest-keywords - AI-based keyword suggestions
+router.post('/suggest-keywords', async (req, res) => {
+  try {
+    const { accountId } = req.body;
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+
+    const sb = getDb();
+    const suggestions = { profile: [], competitor: [] };
+
+    // 1. Get the user's own X account profile for AI-based suggestions
+    const { data: account } = await sb.from('x_accounts')
+      .select('handle, display_name, default_ai_provider, default_ai_model')
+      .eq('id', accountId)
+      .single();
+
+    if (account) {
+      try {
+        const userData = await getUserByHandle(account.handle, accountId);
+        const profile = userData.data;
+        if (profile && profile.description) {
+          const providerName = account.default_ai_provider || 'claude';
+          const aiProvider = getAIProvider(providerName);
+
+          const prompt = `以下のXアカウントのプロフィールを分析し、このアカウントの競合を見つけるための検索キーワードを提案してください。
+
+アカウント名: ${profile.name || account.display_name}
+ハンドル: @${account.handle}
+プロフィール: ${profile.description}
+
+以下の形式でキーワードを5〜8個、JSON配列で出力してください。ハッシュタグは不要です。各キーワードは1〜3語の短いフレーズにしてください。
+例: ["AIマーケティング", "SNS運用", "コンテンツ戦略"]
+
+JSON配列のみ出力してください。`;
+
+          const response = await fetch(
+            providerName === 'gemini'
+              ? `https://generativelanguage.googleapis.com/v1beta/models/${account.default_ai_model || 'gemini-2.0-flash'}:generateContent?key=${process.env.GEMINI_API_KEY}`
+              : 'https://api.anthropic.com/v1/messages',
+            providerName === 'gemini'
+              ? {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 256 } })
+                }
+              : {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.CLAUDE_API_KEY, 'anthropic-version': '2023-06-01' },
+                  body: JSON.stringify({
+                    model: account.default_ai_model || 'claude-sonnet-4-20250514',
+                    max_tokens: 256,
+                    messages: [{ role: 'user', content: prompt }]
+                  })
+                }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            const text = providerName === 'gemini'
+              ? data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+              : data.content?.[0]?.text || '';
+            const match = text.match(/\[[\s\S]*?\]/);
+            if (match) {
+              suggestions.profile = JSON.parse(match[0]);
+            }
+          }
+        }
+      } catch (err) {
+        // Profile-based suggestions failed, continue with competitor-based
+      }
+    }
+
+    // 2. Extract keywords from existing competitor tweets
+    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    const compIds = comps ? comps.map(c => c.id) : [];
+
+    if (compIds.length > 0) {
+      const { data: tweets } = await sb.from('competitor_tweets')
+        .select('text')
+        .in('competitor_id', compIds)
+        .order('engagement_rate', { ascending: false })
+        .limit(50);
+
+      if (tweets && tweets.length > 0) {
+        // Simple keyword extraction: split texts, count word frequency
+        const wordCounts = {};
+        const stopWords = new Set([
+          'の', 'に', 'は', 'を', 'た', 'が', 'で', 'て', 'と', 'し', 'れ', 'さ',
+          'ある', 'いる', 'する', 'から', 'こと', 'この', 'それ', 'ない', 'なる',
+          'よう', 'ので', 'もの', 'です', 'ます', 'した', 'その', 'という', 'ている',
+          'the', 'a', 'an', 'is', 'are', 'was', 'and', 'or', 'but', 'in', 'on', 'at',
+          'to', 'for', 'of', 'with', 'by', 'from', 'it', 'this', 'that', 'RT', 'https', 'co', 't'
+        ]);
+
+        for (const tweet of tweets) {
+          if (!tweet.text) continue;
+          // Remove URLs, mentions, hashtags
+          const cleaned = tweet.text
+            .replace(/https?:\/\/\S+/g, '')
+            .replace(/@\w+/g, '')
+            .replace(/#\S+/g, '');
+
+          // Extract meaningful phrases (2-4 char sequences that appear frequently in Japanese)
+          const words = cleaned.match(/[\u3040-\u9FFFa-zA-Z]{2,}/g) || [];
+          for (const w of words) {
+            if (stopWords.has(w) || w.length < 2) continue;
+            wordCounts[w] = (wordCounts[w] || 0) + 1;
+          }
+        }
+
+        // Get top frequent words (appearing in 3+ tweets)
+        suggestions.competitor = Object.entries(wordCounts)
+          .filter(([, count]) => count >= 2)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10)
+          .map(([word, count]) => ({ word, count }));
+      }
+    }
+
+    res.json(suggestions);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
