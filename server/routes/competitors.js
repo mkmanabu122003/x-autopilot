@@ -258,11 +258,9 @@ router.post('/search', async (req, res) => {
     if (!keyword) return res.status(400).json({ error: 'keyword is required' });
     if (!accountId) return res.status(400).json({ error: 'accountId is required' });
 
-    // Build search query with advanced operators
+    // Build search query (only Basic-tier operators)
     let query = keyword;
     if (language) query += ` lang:${language}`;
-    if (minLikes) query += ` min_faves:${parseInt(minLikes)}`;
-    if (minRetweets) query += ` min_retweets:${parseInt(minRetweets)}`;
     if (hasMedia) query += ' has:media';
     if (hasLinks) query += ' has:links';
     // Exclude retweets and replies to get original content authors
@@ -289,16 +287,25 @@ router.post('/search', async (req, res) => {
     const { data: existingRows } = await existingQuery;
     const existingHandles = new Set((existingRows || []).map(r => r.handle.toLowerCase()));
 
-    // Deduplicate users and calculate tweet counts from search results
+    // Filter tweets by engagement thresholds (post-fetch, since min_faves/min_retweets require Pro tier)
+    const filteredTweets = result.data.filter(tweet => {
+      const metrics = tweet.public_metrics || {};
+      if (minLikes && (metrics.like_count || 0) < parseInt(minLikes)) return false;
+      if (minRetweets && (metrics.retweet_count || 0) < parseInt(minRetweets)) return false;
+      return true;
+    });
+
+    // Deduplicate users and calculate tweet counts from filtered results
     const userTweetCounts = {};
-    for (const tweet of result.data) {
+    for (const tweet of filteredTweets) {
       const authorId = tweet.author_id;
       userTweetCounts[authorId] = (userTweetCounts[authorId] || 0) + 1;
     }
 
-    // Build candidate list
+    // Build candidate list (only include users who have tweets passing engagement filters)
     const candidates = result.includes.users
       .filter(user => {
+        if (!userTweetCounts[user.id]) return false;
         if (existingHandles.has(user.username.toLowerCase())) return false;
         const followers = user.public_metrics?.followers_count || 0;
         if (minFollowers && followers < minFollowers) return false;
