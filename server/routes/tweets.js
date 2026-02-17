@@ -87,7 +87,7 @@ router.post('/quote', async (req, res) => {
   }
 });
 
-// GET /api/tweets/scheduled - List scheduled posts
+// GET /api/tweets/scheduled - List scheduled and failed posts
 router.get('/scheduled', async (req, res) => {
   try {
     const sb = getDb();
@@ -95,7 +95,7 @@ router.get('/scheduled', async (req, res) => {
 
     let query = sb.from('my_posts')
       .select('*, x_accounts(display_name, handle, color)')
-      .eq('status', 'scheduled')
+      .in('status', ['scheduled', 'failed'])
       .order('scheduled_at', { ascending: true });
 
     if (accountId) {
@@ -139,14 +139,14 @@ router.post('/schedule', async (req, res) => {
   }
 });
 
-// DELETE /api/tweets/scheduled/:id - Cancel scheduled post
+// DELETE /api/tweets/scheduled/:id - Cancel scheduled or failed post
 router.delete('/scheduled/:id', async (req, res) => {
   try {
     const sb = getDb();
     const { data, error } = await sb.from('my_posts')
       .delete()
       .eq('id', req.params.id)
-      .eq('status', 'scheduled')
+      .in('status', ['scheduled', 'failed'])
       .select('id');
     if (error) throw error;
 
@@ -187,6 +187,29 @@ router.put('/scheduled/:id', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// POST /api/tweets/scheduled/:id/retry - Retry a failed post
+router.post('/scheduled/:id/retry', async (req, res) => {
+  try {
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts')
+      .update({ status: 'scheduled', scheduled_at: new Date().toISOString() })
+      .eq('id', req.params.id)
+      .eq('status', 'failed')
+      .select('id');
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Failed post not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/tweets/scheduled/:id for failed posts - allow deleting failed posts too
+// (handled by updating the existing DELETE to accept both statuses)
 
 // GET /api/tweets/drafts - List draft posts
 router.get('/drafts', async (req, res) => {

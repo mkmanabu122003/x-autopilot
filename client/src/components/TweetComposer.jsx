@@ -151,7 +151,11 @@ export default function TweetComposer({ mode = 'new', targetTweetId: initialTarg
           </button>
           <button
             type="button"
-            onClick={() => setShowSchedule(!showSchedule)}
+            onClick={() => {
+              const next = !showSchedule;
+              setShowSchedule(next);
+              if (!next) setScheduledAt('');
+            }}
             className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
           >
             {showSchedule ? '即時投稿に戻す' : '予約投稿'}

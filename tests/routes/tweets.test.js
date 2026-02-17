@@ -8,6 +8,7 @@ jest.mock('../../server/db/database', () => {
     update: jest.fn().mockReturnThis(),
     delete: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
     order: jest.fn().mockReturnThis(),
     single: jest.fn().mockResolvedValue({ data: { id: 'test-id' }, error: null }),
   };
@@ -258,6 +259,18 @@ describe('tweets routes', () => {
       const res = await request(app).post('/api/tweets/drafts/123/schedule').send({});
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('scheduledAt is required');
+    });
+  });
+
+  describe('POST /api/tweets/scheduled/:id/retry', () => {
+    test('失敗した投稿をリトライできる', async () => {
+      const app = createApp();
+      const { getDb } = require('../../server/db/database');
+      const mockChain = getDb().from();
+      mockChain.select.mockResolvedValueOnce({ data: [{ id: '123' }], error: null });
+
+      const res = await request(app).post('/api/tweets/scheduled/123/retry').send({});
+      expect(res.status).toBe(200);
     });
   });
 });
