@@ -196,3 +196,42 @@ INSERT INTO task_model_settings (task_type, claude_model, gemini_model, effort, 
   ('quote_rt_generation', 'claude-haiku-4-5-20251001', 'gemini-2.0-flash', 'low', 256),
   ('performance_summary', 'claude-haiku-4-5-20251001', 'gemini-2.0-flash', 'low', 1024)
 ON CONFLICT (task_type) DO NOTHING;
+
+-- ============================================
+-- Auto Post Settings (Scheduled Batch Posting)
+-- ============================================
+
+-- Per-account, per-post-type auto posting configuration
+CREATE TABLE IF NOT EXISTS auto_post_settings (
+  id SERIAL PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES x_accounts(id) ON DELETE CASCADE,
+  post_type TEXT NOT NULL CHECK(post_type IN ('new', 'reply', 'quote')),
+  enabled BOOLEAN DEFAULT FALSE,
+  posts_per_day INTEGER DEFAULT 1,
+  schedule_times TEXT NOT NULL DEFAULT '09:00',
+  schedule_mode TEXT DEFAULT 'scheduled' CHECK(schedule_mode IN ('scheduled', 'immediate')),
+  themes TEXT DEFAULT '',
+  last_run_date TEXT,
+  last_run_times TEXT DEFAULT '',
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(account_id, post_type)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auto_post_settings_account ON auto_post_settings(account_id);
+CREATE INDEX IF NOT EXISTS idx_auto_post_settings_enabled ON auto_post_settings(enabled);
+
+-- Auto post execution log for tracking and debugging
+CREATE TABLE IF NOT EXISTS auto_post_logs (
+  id SERIAL PRIMARY KEY,
+  account_id INTEGER REFERENCES x_accounts(id) ON DELETE SET NULL,
+  post_type TEXT NOT NULL,
+  posts_generated INTEGER DEFAULT 0,
+  posts_scheduled INTEGER DEFAULT 0,
+  posts_posted INTEGER DEFAULT 0,
+  status TEXT DEFAULT 'success' CHECK(status IN ('success', 'partial', 'failed')),
+  error_message TEXT,
+  executed_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auto_post_logs_executed ON auto_post_logs(executed_at);
+CREATE INDEX IF NOT EXISTS idx_auto_post_logs_account ON auto_post_logs(account_id);

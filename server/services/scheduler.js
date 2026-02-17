@@ -3,6 +3,7 @@ const { getDb } = require('../db/database');
 const { postTweet, getUserTweets } = require('./x-api');
 const { calculateEngagementRate } = require('./analytics');
 const { BatchManager } = require('./batch-manager');
+const { checkAndRunAutoPosts } = require('./auto-poster');
 
 function startScheduler() {
   // Check for scheduled posts every minute
@@ -30,6 +31,15 @@ function startScheduler() {
       await batchManager.pollBatchResults();
     } catch (err) {
       console.error('Batch polling error:', err.message);
+    }
+  });
+
+  // Check and run auto posts every minute
+  cron.schedule('* * * * *', async () => {
+    try {
+      await checkAndRunAutoPosts();
+    } catch (err) {
+      console.error('AutoPoster scheduler error:', err.message);
     }
   });
 
