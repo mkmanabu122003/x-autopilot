@@ -79,9 +79,13 @@ export default function Settings() {
     }
   }, [settings]);
 
-  useEffect(() => {
+  const loadUsage = useCallback(() => {
     get('/settings/usage').then(setUsage).catch(() => {});
   }, [get]);
+
+  useEffect(() => {
+    loadUsage();
+  }, [loadUsage]);
 
   // Load cost optimization settings
   const loadCostSettings = useCallback(() => {
@@ -202,8 +206,20 @@ export default function Settings() {
     setSaveError('');
     try {
       await put('/settings/cost', costSettings);
+      // Also save per-API budgets to the settings KV table
+      const budgetUpdates = {};
+      for (const key of ['budget_x_api_usd', 'budget_gemini_usd', 'budget_claude_usd']) {
+        if (form[key] !== undefined && form[key] !== '') {
+          budgetUpdates[key] = form[key];
+        }
+      }
+      if (Object.keys(budgetUpdates).length > 0) {
+        await updateSettings(budgetUpdates);
+      }
       setCostSaved(true);
       setTimeout(() => setCostSaved(false), 2000);
+      // Refresh usage display so updated budgets are reflected
+      loadUsage();
     } catch (err) {
       setSaveError(err.message || 'コスト設定の保存に失敗しました');
     } finally {
@@ -621,6 +637,20 @@ export default function Settings() {
                           style={{ width: `${Math.min(api.budget_used_percent, 100)}%` }}
                         />
                       </div>
+                      {/* Breakdown details */}
+                      {api.breakdown && api.breakdown.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-white/40 space-y-1">
+                          <p className="text-xs font-medium text-gray-500 mb-1">内訳</p>
+                          {api.breakdown.map(item => (
+                            <div key={item.key} className="flex justify-between items-center text-xs">
+                              <span className="text-gray-600 truncate mr-2">{item.label}</span>
+                              <span className="text-gray-500 whitespace-nowrap">
+                                {formatCurrency(item.total_cost)} ({item.call_count}回)
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}

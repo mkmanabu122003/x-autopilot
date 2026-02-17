@@ -118,7 +118,8 @@ describe('settings routes', () => {
 
   describe('GET /api/settings', () => {
     test('設定一覧を取得する', async () => {
-      mockSelect.mockReturnValueOnce({
+      // .select().limit() chain - mock limit as terminal
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({
           data: [
@@ -137,7 +138,7 @@ describe('settings routes', () => {
     });
 
     test('DB エラー時は 500 を返す', async () => {
-      mockSelect.mockReturnValueOnce({
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({
           data: null,
@@ -153,7 +154,7 @@ describe('settings routes', () => {
   });
 
   describe('PUT /api/settings', () => {
-    test('設定を正常に保存できる', async () => {
+    test('設定を正常に保存できる（バッチ upsert）', async () => {
       const app = createApp();
       const res = await request(app).put('/api/settings').send({
         system_prompt: 'updated prompt',
@@ -162,24 +163,31 @@ describe('settings routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(mockFrom).toHaveBeenCalledWith('settings');
-      expect(mockUpsert).toHaveBeenCalledTimes(2);
+      // Batch upsert: single call with array
+      expect(mockUpsert).toHaveBeenCalledTimes(1);
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { key: 'system_prompt', value: 'updated prompt' },
+          { key: 'monthly_budget_usd', value: '50' }
+        ]),
+        { onConflict: 'key' }
+      );
     });
 
-    test('各キーに対して upsert が呼ばれる', async () => {
+    test('許可されたキーのみ upsert される', async () => {
       const app = createApp();
       await request(app).put('/api/settings').send({
         system_prompt: 'new prompt',
-        default_hashtags: '#test'
+        default_hashtags: '#test',
+        unknown_key: 'should be filtered'
       });
 
-      expect(mockUpsert).toHaveBeenCalledWith(
+      const upsertRows = mockUpsert.mock.calls[0][0];
+      expect(upsertRows).toHaveLength(2);
+      expect(upsertRows).toEqual(expect.arrayContaining([
         { key: 'system_prompt', value: 'new prompt' },
-        { onConflict: 'key' }
-      );
-      expect(mockUpsert).toHaveBeenCalledWith(
-        { key: 'default_hashtags', value: '#test' },
-        { onConflict: 'key' }
-      );
+        { key: 'default_hashtags', value: '#test' }
+      ]));
     });
 
     test('upsert エラー時は 500 を返す', async () => {
@@ -275,13 +283,17 @@ describe('settings routes', () => {
       });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      // cost settings が KV テーブルに保存される
+      // cost settings がバッチで KV テーブルに保存される
       expect(mockUpsert).toHaveBeenCalledWith(
-        { key: 'cost_monthly_budget_usd', value: '50' },
+        expect.arrayContaining([
+          { key: 'cost_monthly_budget_usd', value: '50' },
+          { key: 'cost_cache_enabled', value: 'true' }
+        ]),
         { onConflict: 'key' }
       );
+      // monthly_budget_usd は settings テーブルにも同期
       expect(mockUpsert).toHaveBeenCalledWith(
-        { key: 'cost_cache_enabled', value: 'true' },
+        { key: 'monthly_budget_usd', value: '50' },
         { onConflict: 'key' }
       );
     });
@@ -353,6 +365,105 @@ describe('settings routes', () => {
       const upsertCall = mockUpsert.mock.calls[0][0];
       expect(upsertCall).not.toHaveProperty('unknown_field');
       expect(upsertCall).toHaveProperty('claude_model', 'claude-sonnet-4-20250514');
+    });
+  });
+
+  describe('GET /api/settings/usage', () => {
+    test('API利用状況と内訳を返す', async () => {
+      // api_usage_log: .gte().limit() - mock limit as terminal (1st call)
+      mockLimit.mockReturnValueOnce({
+        ...mockChain,
+        then: (resolve) => resolve({
+          data: [
+            { api_type: 'x_write', cost_usd: 0.01, created_at: '2026-02-01T00:00:00Z' },
+            { api_type: 'x_write', cost_usd: 0.01, created_at: '2026-02-01T00:00:00Z' },
+            { api_type: 'x_read', cost_usd: 0.005, created_at: '2026-02-02T00:00:00Z' },
+          ],
+          error: null
+        })
+      });
+
+      // api_usage_logs: .gte().limit() - mock limit as terminal (2nd call)
+      mockLimit.mockReturnValueOnce({
+        ...mockChain,
+        then: (resolve) => resolve({
+          data: [
+            { provider: 'claude', model: 'claude-sonnet-4-20250514', estimated_cost_usd: 0.05, timestamp: '2026-02-01T00:00:00Z' },
+            { provider: 'claude', model: 'claude-haiku-4-5-20251001', estimated_cost_usd: 0.01, timestamp: '2026-02-02T00:00:00Z' },
+          ],
+          error: null
+        })
+      });
+
+      // Budget rows from settings (no limit, uses .in() as terminal)
+      mockIn.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({
+          data: [
+            { key: 'monthly_budget_usd', value: '33' },
+            { key: 'budget_x_api_usd', value: '10' },
+            { key: 'budget_claude_usd', value: '13' },
+          ],
+          error: null
+        })
+      }));
+
+      const app = createApp();
+      const res = await request(app).get('/api/settings/usage');
+      expect(res.status).toBe(200);
+
+      // Total cost
+      expect(res.body.totalCostUsd).toBeGreaterThan(0);
+      expect(res.body.budgetUsd).toBe(33);
+
+      // APIs array
+      expect(res.body.apis).toHaveLength(3);
+
+      // X API breakdown
+      const xApi = res.body.apis.find(a => a.category === 'x');
+      expect(xApi).toBeDefined();
+      expect(xApi.call_count).toBe(3);
+      expect(xApi.breakdown).toBeDefined();
+      expect(xApi.breakdown.length).toBeGreaterThanOrEqual(2);
+      const xWriteBreakdown = xApi.breakdown.find(b => b.key === 'x_write');
+      expect(xWriteBreakdown).toBeDefined();
+      expect(xWriteBreakdown.call_count).toBe(2);
+
+      // Claude breakdown by model
+      const claudeApi = res.body.apis.find(a => a.category === 'claude');
+      expect(claudeApi).toBeDefined();
+      expect(claudeApi.breakdown).toBeDefined();
+      expect(claudeApi.breakdown.length).toBe(2);
+    });
+
+    test('利用データがない場合も正常に返す', async () => {
+      // api_usage_log: empty (limit terminal)
+      mockLimit.mockReturnValueOnce({
+        ...mockChain,
+        then: (resolve) => resolve({ data: [], error: null })
+      });
+      // api_usage_logs: empty (limit terminal)
+      mockLimit.mockReturnValueOnce({
+        ...mockChain,
+        then: (resolve) => resolve({ data: [], error: null })
+      });
+      // Budget rows (in terminal)
+      mockIn.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({ data: [], error: null })
+      }));
+
+      const app = createApp();
+      const res = await request(app).get('/api/settings/usage');
+      expect(res.status).toBe(200);
+      expect(res.body.totalCostUsd).toBe(0);
+      expect(res.body.apis).toHaveLength(3);
+
+      // Each API should have empty breakdown
+      for (const api of res.body.apis) {
+        expect(api.breakdown).toEqual([]);
+        expect(api.call_count).toBe(0);
+      }
     });
   });
 
