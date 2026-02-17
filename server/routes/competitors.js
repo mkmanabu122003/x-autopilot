@@ -142,21 +142,33 @@ router.post('/suggest-keywords', async (req, res) => {
     if (account) {
       // Build list of available providers (preferred first, with fallback)
       const providers = [];
-      const savedProvider = account.default_ai_provider || '';
       const savedModel = account.default_ai_model || '';
 
-      if (process.env.GEMINI_API_KEY) {
-        const model = savedModel.startsWith('gemini') ? savedModel : 'gemini-2.0-flash';
-        providers.push({ name: 'gemini', model });
+      // Check task-level preferred provider for competitor_analysis
+      let preferredProvider = account.default_ai_provider || '';
+      try {
+        const { AIProvider } = require('../services/ai-provider');
+        const baseProvider = new AIProvider();
+        const taskSettings = await baseProvider.getTaskModelSettings('competitor_analysis', 'claude');
+        if (taskSettings.preferredProvider) {
+          preferredProvider = taskSettings.preferredProvider;
+        }
+      } catch (e) {
+        // Fall through to account default
       }
+
       if (process.env.CLAUDE_API_KEY) {
         const model = savedModel.startsWith('claude') ? savedModel : 'claude-sonnet-4-20250514';
         providers.push({ name: 'claude', model });
       }
+      if (process.env.GEMINI_API_KEY) {
+        const model = savedModel.startsWith('gemini') ? savedModel : 'gemini-2.0-flash';
+        providers.push({ name: 'gemini', model });
+      }
 
       // Put preferred provider first
-      if (savedProvider && providers.length > 1) {
-        providers.sort((a, b) => (a.name === savedProvider ? -1 : b.name === savedProvider ? 1 : 0));
+      if (preferredProvider && providers.length > 1) {
+        providers.sort((a, b) => (a.name === preferredProvider ? -1 : b.name === preferredProvider ? 1 : 0));
       }
 
       if (providers.length === 0) {
