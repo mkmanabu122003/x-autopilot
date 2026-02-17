@@ -58,21 +58,28 @@ async function logDetailedUsage(params) {
   };
   const estimatedCost = calculateCost(usage, model, isBatch);
 
-  const sb = getDb();
-  await sb.from('api_usage_logs').insert({
-    provider,
-    model,
-    task_type: taskType,
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    thinking_tokens: thinkingTokens,
-    cache_read_tokens: cacheReadTokens,
-    cache_write_tokens: cacheWriteTokens,
-    is_batch: isBatch,
-    estimated_cost_usd: estimatedCost,
-    request_id: requestId,
-    batch_id: batchId
-  });
+  try {
+    const sb = getDb();
+    const { error } = await sb.from('api_usage_logs').insert({
+      provider,
+      model,
+      task_type: taskType,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      thinking_tokens: thinkingTokens,
+      cache_read_tokens: cacheReadTokens,
+      cache_write_tokens: cacheWriteTokens,
+      is_batch: isBatch,
+      estimated_cost_usd: estimatedCost,
+      request_id: requestId,
+      batch_id: batchId
+    });
+    if (error) {
+      console.warn('logDetailedUsage: api_usage_logs insert failed (table may not exist):', error.message);
+    }
+  } catch (err) {
+    console.warn('logDetailedUsage: failed to log usage:', err.message);
+  }
 
   return estimatedCost;
 }
@@ -82,13 +89,20 @@ async function getMonthlyCostSummary() {
   const now = new Date();
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-  const { data: rows, error } = await sb.from('api_usage_logs')
-    .select('*')
-    .gte('timestamp', startOfMonth);
+  let allRows = [];
+  try {
+    const { data: rows, error } = await sb.from('api_usage_logs')
+      .select('*')
+      .gte('timestamp', startOfMonth);
 
-  if (error) throw error;
-
-  const allRows = rows || [];
+    if (error) {
+      console.warn('getMonthlyCostSummary: api_usage_logs query failed (table may not exist):', error.message);
+    } else {
+      allRows = rows || [];
+    }
+  } catch (err) {
+    console.warn('getMonthlyCostSummary: failed to query usage:', err.message);
+  }
   let totalCost = 0;
   let totalCacheRead = 0;
   let totalInput = 0;
@@ -173,14 +187,23 @@ async function getDailyCosts(days = 30) {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - days);
 
-  const { data: rows, error } = await sb.from('api_usage_logs')
-    .select('timestamp, estimated_cost_usd')
-    .gte('timestamp', cutoff.toISOString());
+  let rows = [];
+  try {
+    const { data, error } = await sb.from('api_usage_logs')
+      .select('timestamp, estimated_cost_usd')
+      .gte('timestamp', cutoff.toISOString());
 
-  if (error) throw error;
+    if (error) {
+      console.warn('getDailyCosts: api_usage_logs query failed (table may not exist):', error.message);
+    } else {
+      rows = data || [];
+    }
+  } catch (err) {
+    console.warn('getDailyCosts: failed to query usage:', err.message);
+  }
 
   const dailyMap = {};
-  for (const row of (rows || [])) {
+  for (const row of rows) {
     const dateKey = row.timestamp ? row.timestamp.substring(0, 10) : 'unknown';
     if (!dailyMap[dateKey]) dailyMap[dateKey] = 0;
     dailyMap[dateKey] += row.estimated_cost_usd || 0;

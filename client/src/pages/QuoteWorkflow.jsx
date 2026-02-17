@@ -77,7 +77,7 @@ export default function QuoteWorkflow() {
     setCandidates([]);
     try {
       const result = await post('/ai/generate', {
-        theme: selectedTweet.text.substring(0, 100),
+        theme: selectedTweet.text,
         postType: 'quote',
         provider,
         model,
@@ -278,7 +278,7 @@ export default function QuoteWorkflow() {
 
           {/* Selected tweet reminder */}
           <div className="bg-gray-50 rounded-lg p-2 text-xs text-gray-500">
-            引用元: @{selectedTweet.handle} 「{selectedTweet.text.substring(0, 80)}...」
+            引用元: @{selectedTweet.handle} 「{selectedTweet.text}」
           </div>
 
           <p className="text-sm text-gray-700">候補を選択して投稿画面に進みます:</p>
