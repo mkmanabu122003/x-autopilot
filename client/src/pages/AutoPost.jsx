@@ -144,14 +144,25 @@ export default function AutoPost() {
   };
 
   const handleManualRun = async (postType) => {
-    const s = getSetting(postType);
-    if (!s.id) {
-      alert('先に設定を保存してください');
-      return;
-    }
+    if (!currentAccount) return;
+    let s = getSetting(postType);
     if (!window.confirm(`${POST_TYPE_CONFIG[postType].label}の自動投稿を今すぐ実行しますか？`)) return;
     setRunning(postType);
     try {
+      // Auto-save settings if not yet saved
+      if (!s.id) {
+        const result = await put('/auto-post/settings', {
+          accountId: currentAccount.id,
+          postType,
+          enabled: s.enabled,
+          postsPerDay: s.postsPerDay,
+          scheduleTimes: s.scheduleTimes,
+          scheduleMode: s.scheduleMode,
+          themes: s.themes,
+        });
+        await loadSettings();
+        s = { ...s, id: result.id };
+      }
       await post(`/auto-post/run/${s.id}`);
       await loadLogs();
     } catch (e) {
@@ -343,7 +354,7 @@ export default function AutoPost() {
                     </button>
                     <button
                       onClick={() => handleManualRun(postType)}
-                      disabled={running === postType || !s.id}
+                      disabled={running === postType}
                       className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
                     >
                       {running === postType ? '実行中...' : '今すぐ実行'}
