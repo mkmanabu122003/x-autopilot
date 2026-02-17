@@ -135,11 +135,10 @@ class ClaudeProvider extends AIProvider {
     return model && model.includes('opus');
   }
 
-  getThinkingConfig(model, effort) {
+  getThinkingConfig(model) {
     if (!this.isOpusModel(model)) return undefined;
     return {
-      type: 'adaptive',
-      effort: effort || 'medium'
+      type: 'adaptive'
     };
   }
 
@@ -186,7 +185,7 @@ class ClaudeProvider extends AIProvider {
     }
 
     // Apply thinking/effort config for Opus models
-    const thinkingConfig = this.getThinkingConfig(model, effort);
+    const thinkingConfig = this.getThinkingConfig(model);
     if (thinkingConfig) {
       body.thinking = thinkingConfig;
     }
