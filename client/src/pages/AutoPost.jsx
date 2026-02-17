@@ -125,6 +125,28 @@ export default function AutoPost() {
     }));
   };
 
+  const handleToggle = async (postType) => {
+    if (!currentAccount) return;
+    const s = getSetting(postType);
+    const newEnabled = !s.enabled;
+    updateSetting(postType, 'enabled', newEnabled);
+    try {
+      await put('/auto-post/settings', {
+        accountId: currentAccount.id,
+        postType,
+        enabled: newEnabled,
+        postsPerDay: s.postsPerDay,
+        scheduleTimes: s.scheduleTimes,
+        scheduleMode: s.scheduleMode,
+        themes: s.themes,
+      });
+      await loadSettings();
+    } catch (e) {
+      // Revert on failure
+      updateSetting(postType, 'enabled', !newEnabled);
+    }
+  };
+
   const handleSave = async (postType) => {
     if (!currentAccount) return;
     const s = getSetting(postType);
@@ -265,7 +287,7 @@ export default function AutoPost() {
                     <p className="text-xs opacity-75 mt-0.5">{config.description}</p>
                   </div>
                   <button
-                    onClick={() => updateSetting(postType, 'enabled', !s.enabled)}
+                    onClick={() => handleToggle(postType)}
                     className={`relative w-12 h-6 rounded-full transition-colors ${s.enabled ? colors.toggle : 'bg-gray-300'}`}
                   >
                     <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${s.enabled ? 'translate-x-6' : ''}`} />

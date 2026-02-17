@@ -8,6 +8,10 @@ const analyticsRouter = require('../server/routes/analytics');
 const aiRouter = require('../server/routes/ai');
 const settingsRouter = require('../server/routes/settings');
 const accountsRouter = require('../server/routes/accounts');
+const costsRouter = require('../server/routes/costs');
+const batchRouter = require('../server/routes/batch');
+const autoPostRouter = require('../server/routes/auto-post');
+const growthRouter = require('../server/routes/growth');
 
 const basicAuth = require('../server/middleware/basicAuth');
 
@@ -24,6 +28,10 @@ app.use('/api/competitors', competitorsRouter);
 app.use('/api/analytics', analyticsRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/costs', costsRouter);
+app.use('/api/batch', batchRouter);
+app.use('/api/auto-post', autoPostRouter);
+app.use('/api/growth', growthRouter);
 
 // Initialize database (async)
 let dbInitialized = false;
