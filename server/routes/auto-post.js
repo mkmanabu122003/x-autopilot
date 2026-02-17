@@ -100,7 +100,11 @@ router.post('/run/:id', async (req, res) => {
     const result = await runAutoPostManually(parseInt(req.params.id));
     res.json(result);
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('Auto-post manual run error:', error);
+    res.status(500).json({
+      error: error.message,
+      details: error.stack ? error.stack.split('\n').slice(0, 3).join('\n') : undefined
+    });
   }
 });
 
