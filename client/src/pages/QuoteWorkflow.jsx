@@ -15,7 +15,7 @@ const QUOTE_ANGLES = [
 
 export default function QuoteWorkflow() {
   const navigate = useNavigate();
-  const { get, post, loading } = useAPI();
+  const { get, post, put, loading } = useAPI();
   const { currentAccount } = useAccount();
 
   // Step management
@@ -37,12 +37,52 @@ export default function QuoteWorkflow() {
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState('');
 
+  // Prompt editor
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [promptData, setPromptData] = useState(null);
+  const [promptSaved, setPromptSaved] = useState(false);
+
   useEffect(() => {
     if (currentAccount) {
       setProvider(currentAccount.default_ai_provider || 'claude');
       setModel(currentAccount.default_ai_model || 'claude-sonnet-4-20250514');
     }
   }, [currentAccount]);
+
+  // Load prompt when editor is opened
+  useEffect(() => {
+    if (showPromptEditor && !promptData) {
+      get('/settings/prompts/quote_rt_generation').then(setPromptData).catch(() => {});
+    }
+  }, [showPromptEditor, promptData, get]);
+
+  const handleSavePrompt = async () => {
+    if (!promptData) return;
+    try {
+      await put('/settings/prompts/quote_rt_generation', {
+        system_prompt: promptData.system_prompt,
+        user_template: promptData.user_template
+      });
+      setPromptSaved(true);
+      setTimeout(() => setPromptSaved(false), 2000);
+    } catch (err) {
+      setGenError('プロンプト保存に失敗しました: ' + err.message);
+    }
+  };
+
+  const handleResetPrompt = async () => {
+    try {
+      const result = await post('/settings/prompts/quote_rt_generation/reset');
+      setPromptData({
+        task_type: 'quote_rt_generation',
+        system_prompt: result.system_prompt,
+        user_template: result.user_template,
+        is_custom: false
+      });
+    } catch (err) {
+      setGenError('プロンプトリセットに失敗しました: ' + err.message);
+    }
+  };
 
   const handleFetchAndSuggest = async () => {
     setFetching(true);
@@ -244,6 +284,49 @@ export default function QuoteWorkflow() {
             onProviderChange={setProvider}
             onModelChange={setModel}
           />
+
+          {/* Prompt editor toggle */}
+          <div className="border-t border-gray-100 pt-3">
+            <button
+              onClick={() => setShowPromptEditor(!showPromptEditor)}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+            >
+              <span>{showPromptEditor ? '▼' : '▶'}</span>
+              プロンプト編集
+              {promptData?.is_custom && <span className="text-blue-500">(カスタム)</span>}
+            </button>
+
+            {showPromptEditor && promptData && (
+              <div className="mt-3 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">
+                    システムプロンプト
+                  </label>
+                  <textarea
+                    value={promptData.system_prompt || ''}
+                    onChange={(e) => setPromptData(prev => ({ ...prev, system_prompt: e.target.value }))}
+                    rows={12}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs resize-y font-mono min-h-[120px]"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSavePrompt}
+                    className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    保存
+                  </button>
+                  <button
+                    onClick={handleResetPrompt}
+                    className="px-3 py-1.5 text-xs text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    デフォルトに戻す
+                  </button>
+                  {promptSaved && <span className="text-xs text-green-600">保存しました</span>}
+                </div>
+              </div>
+            )}
+          </div>
 
           {genError && <p className="text-sm text-red-500">{genError}</p>}
 
