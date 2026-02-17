@@ -213,14 +213,14 @@ async function getQuoteSuggestions(accountId, options = {}) {
   const limit = options.limit || 10;
   const minEngagementRate = options.minEngagementRate || 0;
 
-  // Get tweet_ids already quoted by this account
-  let quotedQuery = sb.from('my_posts')
+  // Get tweet_ids already quoted or replied to by this account (exclude both types)
+  let engagedQuery = sb.from('my_posts')
     .select('target_tweet_id')
-    .eq('post_type', 'quote')
+    .in('post_type', ['reply', 'quote'])
     .not('target_tweet_id', 'is', null);
-  if (accountId) quotedQuery = quotedQuery.eq('account_id', accountId);
-  const { data: quotedRows } = await quotedQuery;
-  const quotedIds = (quotedRows || []).map(r => r.target_tweet_id).filter(Boolean);
+  if (accountId) engagedQuery = engagedQuery.eq('account_id', accountId);
+  const { data: engagedRows } = await engagedQuery;
+  const engagedIds = (engagedRows || []).map(r => r.target_tweet_id).filter(Boolean);
 
   // Get competitor IDs for this account
   let competitorIds = null;
@@ -230,19 +230,19 @@ async function getQuoteSuggestions(accountId, options = {}) {
     if (competitorIds.length === 0) return [];
   }
 
-  // Fetch top tweets by engagement, excluding already-quoted
+  // Fetch top tweets by engagement, excluding already-engaged
   let query = sb.from('competitor_tweets')
     .select('*, competitors(handle, name)')
     .gte('engagement_rate', minEngagementRate)
     .order('engagement_rate', { ascending: false })
-    .limit(limit + quotedIds.length);
+    .limit(limit + engagedIds.length);
 
   if (competitorIds) query = query.in('competitor_id', competitorIds);
   const { data, error } = await query;
   if (error) throw error;
 
   const suggestions = (data || [])
-    .filter(t => !quotedIds.includes(t.tweet_id))
+    .filter(t => !engagedIds.includes(t.tweet_id))
     .slice(0, limit)
     .map(t => ({
       ...t,
@@ -259,14 +259,14 @@ async function getReplySuggestions(accountId, options = {}) {
   const limit = options.limit || 10;
   const minEngagementRate = options.minEngagementRate || 0;
 
-  // Get tweet_ids already replied to by this account
-  let repliedQuery = sb.from('my_posts')
+  // Get tweet_ids already replied to or quoted by this account (exclude both types)
+  let engagedQuery = sb.from('my_posts')
     .select('target_tweet_id')
-    .eq('post_type', 'reply')
+    .in('post_type', ['reply', 'quote'])
     .not('target_tweet_id', 'is', null);
-  if (accountId) repliedQuery = repliedQuery.eq('account_id', accountId);
-  const { data: repliedRows } = await repliedQuery;
-  const repliedIds = (repliedRows || []).map(r => r.target_tweet_id).filter(Boolean);
+  if (accountId) engagedQuery = engagedQuery.eq('account_id', accountId);
+  const { data: engagedRows } = await engagedQuery;
+  const engagedIds = (engagedRows || []).map(r => r.target_tweet_id).filter(Boolean);
 
   // Get competitor IDs for this account
   let competitorIds = null;
@@ -276,19 +276,19 @@ async function getReplySuggestions(accountId, options = {}) {
     if (competitorIds.length === 0) return [];
   }
 
-  // Fetch top tweets by engagement, excluding already-replied
+  // Fetch top tweets by engagement, excluding already-engaged
   let query = sb.from('competitor_tweets')
     .select('*, competitors(handle, name)')
     .gte('engagement_rate', minEngagementRate)
     .order('engagement_rate', { ascending: false })
-    .limit(limit + repliedIds.length);
+    .limit(limit + engagedIds.length);
 
   if (competitorIds) query = query.in('competitor_id', competitorIds);
   const { data, error } = await query;
   if (error) throw error;
 
   const suggestions = (data || [])
-    .filter(t => !repliedIds.includes(t.tweet_id))
+    .filter(t => !engagedIds.includes(t.tweet_id))
     .slice(0, limit)
     .map(t => ({
       ...t,
