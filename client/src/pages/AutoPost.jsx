@@ -470,13 +470,18 @@ export default function AutoPost() {
                         生成: {log.posts_generated}件
                         {log.posts_scheduled > 0 && ` / 予約: ${log.posts_scheduled}件`}
                         {log.posts_posted > 0 && ` / 投稿: ${log.posts_posted}件`}
+                        {log.posts_generated > 0 && log.posts_scheduled === 0 && log.posts_posted === 0 && ` / 下書き: ${log.posts_generated}件`}
                       </div>
                       <span className="text-xs text-gray-400 flex-shrink-0">
                         {formatTime(log.executed_at)}
                       </span>
                     </div>
                     {log.error_message && (
-                      <div className="bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
+                      <div className={`rounded px-3 py-2 text-xs ${
+                        log.status === 'failed'
+                          ? 'bg-red-50 border border-red-200 text-red-700'
+                          : 'bg-gray-50 border border-gray-200 text-gray-600'
+                      }`}>
                         {log.error_message}
                       </div>
                     )}
