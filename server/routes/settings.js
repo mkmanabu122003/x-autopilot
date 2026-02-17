@@ -205,11 +205,40 @@ router.put('/cost', async (req, res) => {
 router.get('/task-models', async (req, res) => {
   try {
     const sb = getDb();
-    const { data, error } = await sb.from('task_model_settings')
-      .select('*')
-      .order('task_type');
-    if (error) throw error;
-    res.json(data || []);
+
+    // Default task model settings
+    const DEFAULTS = {
+      competitor_analysis: { claude_model: 'claude-opus-4-6', gemini_model: 'gemini-2.5-pro', preferred_provider: 'claude', effort: 'high', max_tokens: 2048 },
+      tweet_generation: { claude_model: 'claude-sonnet-4-5-20250929', gemini_model: 'gemini-2.5-flash', preferred_provider: 'claude', effort: 'medium', max_tokens: 512 },
+      comment_generation: { claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', preferred_provider: 'claude', effort: 'low', max_tokens: 256 },
+      quote_rt_generation: { claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', preferred_provider: 'claude', effort: 'low', max_tokens: 256 },
+      performance_summary: { claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', preferred_provider: 'claude', effort: 'low', max_tokens: 1024 },
+    };
+
+    let rows = [];
+    try {
+      const { data, error } = await sb.from('task_model_settings')
+        .select('*')
+        .order('task_type');
+      if (!error && data) rows = data;
+    } catch (e) {
+      // Table might not exist
+    }
+
+    // Merge defaults with existing data
+    const result = Object.entries(DEFAULTS).map(([taskType, defaults]) => {
+      const existing = rows.find(r => r.task_type === taskType);
+      return {
+        task_type: taskType,
+        preferred_provider: existing?.preferred_provider || defaults.preferred_provider,
+        claude_model: existing?.claude_model || defaults.claude_model,
+        gemini_model: existing?.gemini_model || defaults.gemini_model,
+        effort: existing?.effort || defaults.effort,
+        max_tokens: existing?.max_tokens || defaults.max_tokens,
+      };
+    });
+
+    res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -220,15 +249,29 @@ router.put('/task-models/:taskType', async (req, res) => {
   try {
     const sb = getDb();
     const { taskType } = req.params;
-    const updates = {
-      ...req.body,
-      task_type: taskType,
-      updated_at: new Date().toISOString()
-    };
 
-    const { error } = await sb.from('task_model_settings')
+    // Only include known columns to avoid errors with missing columns
+    const knownFields = ['claude_model', 'gemini_model', 'preferred_provider', 'effort', 'max_tokens'];
+    const updates = { task_type: taskType, updated_at: new Date().toISOString() };
+    for (const field of knownFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+
+    // Try upsert with preferred_provider first
+    let { error } = await sb.from('task_model_settings')
       .upsert(updates, { onConflict: 'task_type' });
-    if (error) throw error;
+
+    // If it fails (e.g. preferred_provider column missing), retry without it
+    if (error && error.message && error.message.includes('preferred_provider')) {
+      delete updates.preferred_provider;
+      const retry = await sb.from('task_model_settings')
+        .upsert(updates, { onConflict: 'task_type' });
+      if (retry.error) throw retry.error;
+    } else if (error) {
+      throw error;
+    }
 
     res.json({ success: true });
   } catch (error) {

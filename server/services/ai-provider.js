@@ -81,6 +81,7 @@ class AIProvider {
 
     if (data) {
       return {
+        preferredProvider: data.preferred_provider || null,
         model: providerName === 'claude' ? data.claude_model : data.gemini_model,
         effort: data.effort || DEFAULT_EFFORT_MAP[taskType] || 'medium',
         maxTokens: data.max_tokens || DEFAULT_MAX_TOKENS_MAP[taskType] || 512
@@ -88,6 +89,7 @@ class AIProvider {
     }
 
     return {
+      preferredProvider: null,
       model: null,
       effort: DEFAULT_EFFORT_MAP[taskType] || 'medium',
       maxTokens: DEFAULT_MAX_TOKENS_MAP[taskType] || 512

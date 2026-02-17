@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/database');
-const { getAIProvider, getAvailableModels } = require('../services/ai-provider');
+const { getAIProvider, getAvailableModels, AIProvider } = require('../services/ai-provider');
 const { getCompetitorContext } = require('../services/analytics');
 
 // POST /api/ai/generate - Generate tweet candidates
@@ -11,18 +11,35 @@ router.post('/generate', async (req, res) => {
 
     if (!theme) return res.status(400).json({ error: 'theme is required' });
 
-    // Determine provider and model from account defaults or request
+    // Determine provider and model
+    // Priority: explicit request > task-level setting > account default > 'claude'
     let providerName = provider;
     let modelName = model;
 
-    if (accountId) {
+    // Check task-level preferred provider (if no explicit provider in request)
+    if (!providerName) {
+      const baseProvider = new AIProvider();
+      const taskType = baseProvider.inferTaskType(postType || 'new');
+      const taskSettings = await baseProvider.getTaskModelSettings(taskType, 'claude');
+      if (taskSettings.preferredProvider) {
+        providerName = taskSettings.preferredProvider;
+        // Also use the corresponding model for the preferred provider
+        const fullSettings = await baseProvider.getTaskModelSettings(taskType, providerName);
+        if (!modelName && fullSettings.model) {
+          modelName = fullSettings.model;
+        }
+      }
+    }
+
+    // Fall back to account defaults
+    if (!providerName && accountId) {
       const sb = getDb();
       const { data: account } = await sb.from('x_accounts')
         .select('default_ai_provider, default_ai_model')
         .eq('id', accountId)
         .single();
       if (account) {
-        providerName = providerName || account.default_ai_provider;
+        providerName = account.default_ai_provider;
         modelName = modelName || account.default_ai_model;
       }
     }

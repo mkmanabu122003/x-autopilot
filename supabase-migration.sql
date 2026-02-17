@@ -151,12 +151,19 @@ CREATE TABLE IF NOT EXISTS cost_settings (
 CREATE TABLE IF NOT EXISTS task_model_settings (
   id SERIAL PRIMARY KEY,
   task_type TEXT NOT NULL UNIQUE,
+  preferred_provider TEXT DEFAULT 'claude',
   claude_model TEXT NOT NULL,
   gemini_model TEXT NOT NULL,
   effort TEXT DEFAULT 'medium',
   max_tokens INTEGER DEFAULT 512,
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add preferred_provider column if not exists (for existing installations)
+DO $$ BEGIN
+  ALTER TABLE task_model_settings ADD COLUMN IF NOT EXISTS preferred_provider TEXT DEFAULT 'claude';
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
 
 -- Custom prompt templates per task type
 CREATE TABLE IF NOT EXISTS custom_prompts (

@@ -1,5 +1,5 @@
 const { getDb } = require('../db/database');
-const { getAIProvider } = require('./ai-provider');
+const { getAIProvider, AIProvider } = require('./ai-provider');
 const { postTweet } = require('./x-api');
 const { getQuoteSuggestions, getReplySuggestions, getCompetitorContext } = require('./analytics');
 
@@ -68,11 +68,28 @@ async function checkAndRunAutoPosts() {
   }
 }
 
+async function resolveProvider(postType, accountDefault) {
+  // Priority: task-level preferred_provider > account default > 'claude'
+  const taskTypeMap = { new: 'tweet_generation', reply: 'reply_generation', quote: 'quote_rt_generation' };
+  const taskType = taskTypeMap[postType] || 'tweet_generation';
+
+  try {
+    const baseProvider = new AIProvider();
+    const taskSettings = await baseProvider.getTaskModelSettings(taskType, 'claude');
+    if (taskSettings.preferredProvider) {
+      return taskSettings.preferredProvider;
+    }
+  } catch (e) {
+    // Fall through to account default
+  }
+
+  return accountDefault || 'claude';
+}
+
 async function executeAutoPost(setting, count, currentTime, { forcePreview = false } = {}) {
-  const accountId = setting.account_id;
-  const provider = getAIProvider(
-    setting.x_accounts?.default_ai_provider || 'claude'
-  );
+  const accountDefault = setting.x_accounts?.default_ai_provider || 'claude';
+  const providerName = await resolveProvider(setting.post_type, accountDefault);
+  const provider = getAIProvider(providerName);
 
   switch (setting.post_type) {
     case 'new':
