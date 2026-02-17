@@ -130,7 +130,9 @@ describe('analytics', () => {
         if (table === 'competitors') {
           return {
             select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({ data: competitorIds.map(id => ({ id })) })
+              eq: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({ data: competitorIds.map(id => ({ id })) })
+              })
             })
           };
         }
@@ -263,7 +265,9 @@ describe('analytics', () => {
         if (table === 'competitors') {
           return {
             select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({ data: competitorIds.map(id => ({ id })) })
+              eq: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({ data: competitorIds.map(id => ({ id })) })
+              })
             })
           };
         }

@@ -13,7 +13,8 @@ async function getDashboardSummary(accountId) {
   const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
   // Post count this month
-  let postQuery = sb.from('my_posts').select('*', { count: 'exact', head: true })
+  let postQuery = sb.from('my_posts')
+    .select('*', { count: 'exact', head: true })
     .eq('status', 'posted')
     .gte('posted_at', startOfMonth);
   if (accountId) postQuery = postQuery.eq('account_id', accountId);
@@ -22,7 +23,8 @@ async function getDashboardSummary(accountId) {
   // Competitor tweets this month for engagement rate
   let competitorIds = null;
   if (accountId) {
-    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    const { data: comps } = await sb.from('competitors')
+      .select('id').eq('account_id', accountId).limit(100);
     competitorIds = comps ? comps.map(c => c.id) : [];
   }
 
@@ -46,7 +48,8 @@ async function getDashboardSummary(accountId) {
   }
 
   // API cost this month
-  let costQuery = sb.from('api_usage_log').select('cost_usd').gte('created_at', startOfMonth);
+  let costQuery = sb.from('api_usage_log')
+    .select('cost_usd').gte('created_at', startOfMonth);
   if (accountId) costQuery = costQuery.eq('account_id', accountId);
   const { data: costData } = await costQuery;
   const apiCost = costData ? costData.reduce((acc, r) => acc + (r.cost_usd || 0), 0) : 0;
@@ -174,7 +177,8 @@ async function getCompetitorContext(accountId) {
     .limit(5);
 
   if (accountId) {
-    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    const { data: comps } = await sb.from('competitors')
+      .select('id').eq('account_id', accountId).limit(100);
     const compIds = comps ? comps.map(c => c.id) : [];
     if (compIds.length > 0) {
       topPostsQuery = topPostsQuery.in('competitor_id', compIds);
@@ -238,7 +242,8 @@ async function getQuoteSuggestions(accountId, options = {}) {
   // Get competitor IDs for this account
   let competitorIds = null;
   if (accountId) {
-    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    const { data: comps } = await sb.from('competitors')
+      .select('id').eq('account_id', accountId).limit(100);
     competitorIds = comps ? comps.map(c => c.id) : [];
     if (competitorIds.length === 0) return [];
   }
@@ -296,7 +301,8 @@ async function getReplySuggestions(accountId, options = {}) {
   // Get competitor IDs for this account
   let competitorIds = null;
   if (accountId) {
-    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    const { data: comps } = await sb.from('competitors')
+      .select('id').eq('account_id', accountId).limit(100);
     competitorIds = comps ? comps.map(c => c.id) : [];
     if (competitorIds.length === 0) return [];
   }
