@@ -356,6 +356,105 @@ describe('settings routes', () => {
     });
   });
 
+  describe('GET /api/settings/usage', () => {
+    test('API利用状況と内訳を返す', async () => {
+      // api_usage_log: x_write and x_read entries
+      mockGte.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({
+          data: [
+            { api_type: 'x_write', cost_usd: 0.01, created_at: '2026-02-01T00:00:00Z' },
+            { api_type: 'x_write', cost_usd: 0.01, created_at: '2026-02-01T00:00:00Z' },
+            { api_type: 'x_read', cost_usd: 0.005, created_at: '2026-02-02T00:00:00Z' },
+          ],
+          error: null
+        })
+      }));
+
+      // api_usage_logs: claude model entries
+      mockGte.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({
+          data: [
+            { provider: 'claude', model: 'claude-sonnet-4-20250514', estimated_cost_usd: 0.05, timestamp: '2026-02-01T00:00:00Z' },
+            { provider: 'claude', model: 'claude-haiku-4-5-20251001', estimated_cost_usd: 0.01, timestamp: '2026-02-02T00:00:00Z' },
+          ],
+          error: null
+        })
+      }));
+
+      // Budget rows from settings
+      mockIn.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({
+          data: [
+            { key: 'monthly_budget_usd', value: '33' },
+            { key: 'budget_x_api_usd', value: '10' },
+            { key: 'budget_claude_usd', value: '13' },
+          ],
+          error: null
+        })
+      }));
+
+      const app = createApp();
+      const res = await request(app).get('/api/settings/usage');
+      expect(res.status).toBe(200);
+
+      // Total cost
+      expect(res.body.totalCostUsd).toBeGreaterThan(0);
+      expect(res.body.budgetUsd).toBe(33);
+
+      // APIs array
+      expect(res.body.apis).toHaveLength(3);
+
+      // X API breakdown
+      const xApi = res.body.apis.find(a => a.category === 'x');
+      expect(xApi).toBeDefined();
+      expect(xApi.call_count).toBe(3);
+      expect(xApi.breakdown).toBeDefined();
+      expect(xApi.breakdown.length).toBeGreaterThanOrEqual(2);
+      const xWriteBreakdown = xApi.breakdown.find(b => b.key === 'x_write');
+      expect(xWriteBreakdown).toBeDefined();
+      expect(xWriteBreakdown.call_count).toBe(2);
+
+      // Claude breakdown by model
+      const claudeApi = res.body.apis.find(a => a.category === 'claude');
+      expect(claudeApi).toBeDefined();
+      expect(claudeApi.breakdown).toBeDefined();
+      expect(claudeApi.breakdown.length).toBe(2);
+    });
+
+    test('利用データがない場合も正常に返す', async () => {
+      // api_usage_log: empty
+      mockGte.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({ data: [], error: null })
+      }));
+      // api_usage_logs: empty
+      mockGte.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({ data: [], error: null })
+      }));
+      // Budget rows
+      mockIn.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({ data: [], error: null })
+      }));
+
+      const app = createApp();
+      const res = await request(app).get('/api/settings/usage');
+      expect(res.status).toBe(200);
+      expect(res.body.totalCostUsd).toBe(0);
+      expect(res.body.apis).toHaveLength(3);
+
+      // Each API should have empty breakdown
+      for (const api of res.body.apis) {
+        expect(api.breakdown).toEqual([]);
+        expect(api.call_count).toBe(0);
+      }
+    });
+  });
+
   describe('PUT /api/settings/prompts/:taskType', () => {
     test('カスタムプロンプトを保存できる', async () => {
       const app = createApp();

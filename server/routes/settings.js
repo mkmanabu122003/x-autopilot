@@ -106,8 +106,15 @@ router.get('/usage', async (req, res) => {
       return apiType || 'other';
     };
 
-    // Aggregate by category and day
+    // Labels for breakdown items
+    const BREAKDOWN_LABELS = {
+      x_write: '投稿 (Write)', x_read: '取得 (Read)', x_search: '検索 (Search)',
+      x_user: 'ユーザー情報', x_dm: 'DM', x_media: 'メディア',
+    };
+
+    // Aggregate by category and day, and track breakdowns
     const byCategoryMap = {};
+    const breakdownMap = {}; // category -> { subkey -> { key, label, call_count, total_cost } }
     let totalCost = 0;
     const dailyMap = {};
 
@@ -124,11 +131,20 @@ router.get('/usage', async (req, res) => {
       const dateKey = row.created_at ? row.created_at.substring(0, 10) : 'unknown';
       if (!dailyMap[dateKey]) dailyMap[dateKey] = 0;
       dailyMap[dateKey] += row.cost_usd || 0;
+
+      // Breakdown tracking (by api_type for X, by api_type for others)
+      const subkey = row.api_type || 'unknown';
+      if (!breakdownMap[cat]) breakdownMap[cat] = {};
+      if (!breakdownMap[cat][subkey]) {
+        breakdownMap[cat][subkey] = { key: subkey, label: BREAKDOWN_LABELS[subkey] || subkey, call_count: 0, total_cost: 0 };
+      }
+      breakdownMap[cat][subkey].call_count++;
+      breakdownMap[cat][subkey].total_cost += row.cost_usd || 0;
     }
 
-    // Also include detailed usage logs
+    // Also include detailed usage logs (with model info)
     const { data: detailedRows } = await sb.from('api_usage_logs')
-      .select('provider, estimated_cost_usd, timestamp')
+      .select('provider, model, estimated_cost_usd, timestamp')
       .gte('timestamp', startOfMonth);
 
     for (const row of (detailedRows || [])) {
@@ -143,6 +159,15 @@ router.get('/usage', async (req, res) => {
       const dateKey = row.timestamp ? row.timestamp.substring(0, 10) : 'unknown';
       if (!dailyMap[dateKey]) dailyMap[dateKey] = 0;
       dailyMap[dateKey] += row.estimated_cost_usd || 0;
+
+      // Breakdown by model for Claude/Gemini
+      const subkey = row.model || row.provider || 'unknown';
+      if (!breakdownMap[cat]) breakdownMap[cat] = {};
+      if (!breakdownMap[cat][subkey]) {
+        breakdownMap[cat][subkey] = { key: subkey, label: subkey, call_count: 0, total_cost: 0 };
+      }
+      breakdownMap[cat][subkey].call_count++;
+      breakdownMap[cat][subkey].total_cost += row.estimated_cost_usd || 0;
     }
 
     const dailyUsage = Object.entries(dailyMap)
@@ -165,16 +190,20 @@ router.get('/usage', async (req, res) => {
       claude: budgetMap.budget_claude_usd || 13,
     };
 
-    // Build per-API usage info
+    // Build per-API usage info with breakdown
     const apis = ['x', 'gemini', 'claude'].map(cat => {
       const usage = byCategoryMap[cat] || { category: cat, call_count: 0, total_cost: 0 };
       const budget = budgets[cat];
+      const breakdown = Object.values(breakdownMap[cat] || {})
+        .map(b => ({ ...b, total_cost: parseFloat(b.total_cost.toFixed(4)) }))
+        .sort((a, b) => b.total_cost - a.total_cost);
       return {
         category: cat,
         call_count: usage.call_count,
         total_cost: parseFloat(usage.total_cost.toFixed(4)),
         budget_usd: budget,
         budget_used_percent: budget > 0 ? parseFloat(((usage.total_cost / budget) * 100).toFixed(1)) : 0,
+        breakdown,
       };
     });
 
