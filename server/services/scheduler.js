@@ -105,7 +105,20 @@ async function fetchAllCompetitorTweets() {
 
   for (const competitor of competitors) {
     try {
-      const result = await getUserTweets(competitor.user_id, 100, competitor.account_id);
+      // Skip if we already have recent tweets (fetched within 24h) to save API costs
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: recentTweets } = await sb.from('competitor_tweets')
+        .select('id')
+        .eq('competitor_id', competitor.id)
+        .gte('fetched_at', oneDayAgo)
+        .limit(1);
+      if (recentTweets && recentTweets.length > 0) {
+        console.log(`Skipping @${competitor.handle} - tweets fetched recently`);
+        continue;
+      }
+
+      // Reduced from 100 to 30 to save costs ($0.15 vs $0.50 per call)
+      const result = await getUserTweets(competitor.user_id, 30, competitor.account_id);
       if (!result.data) continue;
 
       const rows = result.data.map(tweet => {
