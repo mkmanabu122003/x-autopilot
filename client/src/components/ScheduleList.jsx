@@ -20,7 +20,7 @@ export default function ScheduleList() {
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [editTime, setEditTime] = useState('');
-  const { get, put, del, loading } = useAPI();
+  const { get, post: apiPost, put, del, loading } = useAPI();
 
   const fetchPosts = async () => {
     try {
@@ -41,6 +41,15 @@ export default function ScheduleList() {
     try {
       await del(`/tweets/scheduled/${id}`);
       setPosts(posts.filter(p => p.id !== id));
+    } catch (err) {
+      // ignore
+    }
+  };
+
+  const handleRetry = async (id) => {
+    try {
+      await apiPost(`/tweets/scheduled/${id}/retry`);
+      fetchPosts();
     } catch (err) {
       // ignore
     }
@@ -80,7 +89,7 @@ export default function ScheduleList() {
         <p className="text-sm text-gray-400 py-4 text-center">予約投稿はありません</p>
       )}
       {posts.map(post => (
-        <div key={post.id} className="border border-gray-200 rounded-lg p-3">
+        <div key={post.id} className={`border rounded-lg p-3 ${post.status === 'failed' ? 'border-red-300 bg-red-50' : 'border-gray-200'}`}>
           {editingId === post.id ? (
             <div className="space-y-2">
               <textarea
@@ -115,27 +124,54 @@ export default function ScheduleList() {
             <div>
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <span className="inline-block px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded mb-1">
-                    {postTypeLabel(post.post_type)}
-                  </span>
+                  <div className="flex items-center gap-1 mb-1">
+                    <span className="inline-block px-2 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">
+                      {postTypeLabel(post.post_type)}
+                    </span>
+                    {post.status === 'failed' && (
+                      <span className="inline-block px-2 py-0.5 text-xs bg-red-100 text-red-700 rounded font-medium">
+                        投稿失敗
+                      </span>
+                    )}
+                  </div>
                   <p className="text-sm text-gray-800 break-words">{post.text}</p>
                   <p className="text-xs text-gray-400 mt-1">
                     予定: {formatDate(post.scheduled_at)}
                   </p>
                 </div>
                 <div className="flex gap-1 flex-shrink-0">
-                  <button
-                    onClick={() => handleEdit(post)}
-                    className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                  >
-                    編集
-                  </button>
-                  <button
-                    onClick={() => handleDelete(post.id)}
-                    className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
-                  >
-                    削除
-                  </button>
+                  {post.status === 'failed' ? (
+                    <>
+                      <button
+                        onClick={() => handleRetry(post.id)}
+                        disabled={loading}
+                        className="px-2 py-1 text-xs text-orange-600 hover:bg-orange-50 rounded transition-colors"
+                      >
+                        再試行
+                      </button>
+                      <button
+                        onClick={() => handleDelete(post.id)}
+                        className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
+                      >
+                        削除
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleEdit(post)}
+                        className="px-2 py-1 text-xs text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                      >
+                        編集
+                      </button>
+                      <button
+                        onClick={() => handleDelete(post.id)}
+                        className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
+                      >
+                        削除
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
