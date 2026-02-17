@@ -162,38 +162,32 @@ router.post('/suggest-keywords', async (req, res) => {
       if (providers.length === 0) {
         suggestions.debug = 'AIプロバイダーのAPIキーが設定されていません（CLAUDE_API_KEY または GEMINI_API_KEY）';
       } else {
-        // Build profile text from account info and X profile
+        // --- Cost optimization: Use DB data first, only call X API if no local data ---
         let profileText = '';
         let userId = null;
-        try {
-          const userData = await getUserByHandle(account.handle, accountId);
-          const profile = userData.data;
-          profileText = profile?.description || '';
-          userId = profile?.id || null;
-        } catch (err) {
-          // X API lookup failed, use display_name only
-        }
 
-        // Fetch user's recent tweets from X API
-        let recentTweetsText = '';
-        if (userId) {
+        // Try to get user info from competitors table first (avoids getUserByHandle API call)
+        const { data: existingComp } = await sb.from('competitors')
+          .select('user_id, name')
+          .eq('handle', account.handle.replace('@', ''))
+          .limit(1)
+          .single();
+
+        if (existingComp) {
+          userId = existingComp.user_id;
+        } else {
+          // Only call X API if not found in DB
           try {
-            const tweetsData = await getUserTweets(userId, 20, accountId);
-            if (tweetsData.data && tweetsData.data.length > 0) {
-              const tweetTexts = tweetsData.data
-                .map(t => t.text)
-                .filter(t => t && !t.startsWith('RT @'))
-                .slice(0, 15);
-              if (tweetTexts.length > 0) {
-                recentTweetsText = tweetTexts.join('\n');
-              }
-            }
+            const userData = await getUserByHandle(account.handle, accountId);
+            const profile = userData.data;
+            profileText = profile?.description || '';
+            userId = profile?.id || null;
           } catch (err) {
-            // Tweet fetch failed, continue without tweets
+            // X API lookup failed, use display_name only
           }
         }
 
-        // Also fetch user's posted tweets from database
+        // Fetch user's posted tweets from database FIRST (free, no API cost)
         let dbTweetsText = '';
         try {
           const { data: myPosts } = await sb.from('my_posts')
@@ -209,9 +203,28 @@ router.post('/suggest-keywords', async (req, res) => {
           // DB fetch failed, continue without
         }
 
-        // Combine all tweet texts (deduplicate by removing overlap)
-        const allTweets = recentTweetsText || dbTweetsText
-          ? [recentTweetsText, dbTweetsText].filter(Boolean).join('\n')
+        // Only call X API for tweets if we don't have enough DB data
+        let recentTweetsText = '';
+        if (!dbTweetsText && userId) {
+          try {
+            const tweetsData = await getUserTweets(userId, 10, accountId);
+            if (tweetsData.data && tweetsData.data.length > 0) {
+              const tweetTexts = tweetsData.data
+                .map(t => t.text)
+                .filter(t => t && !t.startsWith('RT @'))
+                .slice(0, 10);
+              if (tweetTexts.length > 0) {
+                recentTweetsText = tweetTexts.join('\n');
+              }
+            }
+          } catch (err) {
+            // Tweet fetch failed, continue without tweets
+          }
+        }
+
+        // Combine all tweet texts (DB data preferred)
+        const allTweets = dbTweetsText || recentTweetsText
+          ? [dbTweetsText, recentTweetsText].filter(Boolean).join('\n')
           : '';
 
         const accountName = account.display_name || account.handle;
