@@ -140,22 +140,26 @@ router.post('/suggest-keywords', async (req, res) => {
       .single();
 
     if (account) {
-      // Determine which AI provider to use and ensure model matches
-      let providerName = null;
-      let modelName = null;
+      // Build list of available providers (preferred first, with fallback)
+      const providers = [];
+      const savedProvider = account.default_ai_provider || '';
+      const savedModel = account.default_ai_model || '';
 
       if (process.env.GEMINI_API_KEY) {
-        providerName = 'gemini';
-        const savedModel = account.default_ai_model || '';
-        modelName = savedModel.startsWith('gemini') ? savedModel : 'gemini-2.0-flash';
+        const model = savedModel.startsWith('gemini') ? savedModel : 'gemini-2.0-flash';
+        providers.push({ name: 'gemini', model });
       }
       if (process.env.CLAUDE_API_KEY) {
-        providerName = 'claude';
-        const savedModel = account.default_ai_model || '';
-        modelName = savedModel.startsWith('claude') ? savedModel : 'claude-sonnet-4-20250514';
+        const model = savedModel.startsWith('claude') ? savedModel : 'claude-sonnet-4-20250514';
+        providers.push({ name: 'claude', model });
       }
 
-      if (!providerName) {
+      // Put preferred provider first
+      if (savedProvider && providers.length > 1) {
+        providers.sort((a, b) => (a.name === savedProvider ? -1 : b.name === savedProvider ? 1 : 0));
+      }
+
+      if (providers.length === 0) {
         suggestions.debug = 'AIプロバイダーのAPIキーが設定されていません（CLAUDE_API_KEY または GEMINI_API_KEY）';
       } else {
         // Build profile text from account info and X profile
@@ -214,64 +218,78 @@ router.post('/suggest-keywords', async (req, res) => {
         const tweetSection = allTweets
           ? `\n最近のツイート:\n${allTweets}\n`
           : '';
-        const prompt = `以下のXアカウントの情報を分析し、このアカウントの競合を見つけるための検索キーワードを提案してください。
+        const prompt = `あなたはX（Twitter）の競合分析の専門家です。以下のアカウント情報をもとに、競合アカウントを検索するためのキーワードをJSON配列で提案してください。
 
 アカウント名: ${accountName}
 ハンドル: @${account.handle}
-${profileText ? `プロフィール: ${profileText}` : '（プロフィール未設定）'}
+${profileText ? `プロフィール: ${profileText}` : ''}
 ${tweetSection}
-このアカウントのプロフィールとツイート内容を踏まえて、同じ分野・ジャンルで活動している競合アカウントを見つけるために、X上で検索すべきキーワードを5〜8個提案してください。
-ハッシュタグは不要です。各キーワードは1〜3語の短いフレーズにしてください。
-ツイートの主要トピックや専門分野に関連するキーワードを優先してください。
+【ルール】
+- 必ず5〜8個のキーワードをJSON配列で出力すること
+- 情報が少ない場合でも、アカウント名やハンドル名から推測して提案すること
+- ハッシュタグは不要。各キーワードは1〜3語の短いフレーズにすること
+- 説明文は不要。JSON配列のみ出力すること
+- ツイート内容がある場合は、その主要トピックや専門分野に関連するキーワードを優先すること
 
-以下の形式でJSON配列のみ出力してください:
-["キーワード1", "キーワード2", "キーワード3"]`;
+出力形式（この形式以外は禁止）:
+["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"]`;
 
-        try {
-          let response;
-          if (providerName === 'gemini') {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${process.env.GEMINI_API_KEY}`;
-            response = await fetch(url, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 256 }
-              })
-            });
-          } else {
-            response = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': process.env.CLAUDE_API_KEY,
-                'anthropic-version': '2023-06-01'
-              },
-              body: JSON.stringify({
-                model: modelName,
-                max_tokens: 256,
-                messages: [{ role: 'user', content: prompt }]
-              })
-            });
-          }
-
-          if (response.ok) {
-            const data = await response.json();
-            const text = providerName === 'gemini'
-              ? data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-              : data.content?.[0]?.text || '';
-            const match = text.match(/\[[\s\S]*?\]/);
-            if (match) {
-              suggestions.profile = JSON.parse(match[0]);
+        // Try each provider with fallback
+        const errors = [];
+        for (const provider of providers) {
+          try {
+            let response;
+            if (provider.name === 'gemini') {
+              const url = `https://generativelanguage.googleapis.com/v1beta/models/${provider.model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
+              response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: { maxOutputTokens: 256, responseMimeType: 'application/json' }
+                })
+              });
             } else {
-              suggestions.debug = `AI応答のパースに失敗: ${text.substring(0, 100)}`;
+              response = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'x-api-key': process.env.CLAUDE_API_KEY,
+                  'anthropic-version': '2023-06-01'
+                },
+                body: JSON.stringify({
+                  model: provider.model,
+                  max_tokens: 256,
+                  system: 'あなたはJSON配列のみを出力するアシスタントです。説明文や前置きは一切不要です。必ずJSON配列だけを返してください。',
+                  messages: [{ role: 'user', content: prompt }]
+                })
+              });
             }
-          } else {
-            const errBody = await response.json().catch(() => ({}));
-            suggestions.debug = `AI API エラー (${response.status}): ${JSON.stringify(errBody).substring(0, 200)}`;
+
+            if (response.ok) {
+              const data = await response.json();
+              const text = provider.name === 'gemini'
+                ? data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+                : data.content?.[0]?.text || '';
+              const match = text.match(/\[[\s\S]*?\]/);
+              if (match) {
+                suggestions.profile = JSON.parse(match[0]);
+                break; // Success, stop trying
+              } else {
+                errors.push(`${provider.name}: パース失敗`);
+              }
+            } else {
+              const errBody = await response.json().catch(() => ({}));
+              errors.push(`${provider.name}(${response.status}): ${errBody?.error?.message || JSON.stringify(errBody).substring(0, 100)}`);
+              // Continue to next provider (fallback)
+            }
+          } catch (err) {
+            errors.push(`${provider.name}: ${err.message}`);
           }
-        } catch (err) {
-          suggestions.debug = `AI接続エラー: ${err.message}`;
+        }
+
+        if (suggestions.profile.length === 0 && errors.length > 0) {
+          suggestions.debug = errors.join(' / ');
         }
       }
     } else {

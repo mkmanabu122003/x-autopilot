@@ -53,22 +53,27 @@ router.get('/usage', async (req, res) => {
       .gte('created_at', startOfMonth);
     if (usageError) throw usageError;
 
-    // Aggregate by type and day in JS
-    const byTypeMap = {};
+    // Map api_type to category: x_write/x_read/x_user/x_search -> 'x', claude -> 'claude', gemini -> 'gemini'
+    const toCategory = (apiType) => {
+      if (apiType && apiType.startsWith('x_')) return 'x';
+      return apiType || 'other';
+    };
+
+    // Aggregate by category and day
+    const byCategoryMap = {};
     let totalCost = 0;
     const dailyMap = {};
 
     for (const row of (usageRows || [])) {
-      // By type
-      if (!byTypeMap[row.api_type]) {
-        byTypeMap[row.api_type] = { api_type: row.api_type, call_count: 0, total_cost: 0 };
+      const cat = toCategory(row.api_type);
+      if (!byCategoryMap[cat]) {
+        byCategoryMap[cat] = { category: cat, call_count: 0, total_cost: 0 };
       }
-      byTypeMap[row.api_type].call_count++;
-      byTypeMap[row.api_type].total_cost += row.cost_usd || 0;
+      byCategoryMap[cat].call_count++;
+      byCategoryMap[cat].total_cost += row.cost_usd || 0;
 
       totalCost += row.cost_usd || 0;
 
-      // Daily
       const dateKey = row.created_at ? row.created_at.substring(0, 10) : 'unknown';
       if (!dailyMap[dateKey]) dailyMap[dateKey] = 0;
       dailyMap[dateKey] += row.cost_usd || 0;
@@ -80,12 +85,12 @@ router.get('/usage', async (req, res) => {
       .gte('timestamp', startOfMonth);
 
     for (const row of (detailedRows || [])) {
-      const apiType = row.provider;
-      if (!byTypeMap[apiType]) {
-        byTypeMap[apiType] = { api_type: apiType, call_count: 0, total_cost: 0 };
+      const cat = toCategory(row.provider);
+      if (!byCategoryMap[cat]) {
+        byCategoryMap[cat] = { category: cat, call_count: 0, total_cost: 0 };
       }
-      byTypeMap[apiType].call_count++;
-      byTypeMap[apiType].total_cost += row.estimated_cost_usd || 0;
+      byCategoryMap[cat].call_count++;
+      byCategoryMap[cat].total_cost += row.estimated_cost_usd || 0;
       totalCost += row.estimated_cost_usd || 0;
 
       const dateKey = row.timestamp ? row.timestamp.substring(0, 10) : 'unknown';
@@ -93,19 +98,44 @@ router.get('/usage', async (req, res) => {
       dailyMap[dateKey] += row.estimated_cost_usd || 0;
     }
 
-    const usageByType = Object.values(byTypeMap);
     const dailyUsage = Object.entries(dailyMap)
       .map(([date, daily_cost]) => ({ date, daily_cost }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const { data: budgetRow } = await sb.from('settings').select('value').eq('key', 'monthly_budget_usd').single();
-    const budget = budgetRow ? parseFloat(budgetRow.value) : 33;
+    // Fetch per-API budgets
+    const { data: budgetRows } = await sb.from('settings')
+      .select('key, value')
+      .in('key', ['monthly_budget_usd', 'budget_x_api_usd', 'budget_gemini_usd', 'budget_claude_usd']);
+    const budgetMap = {};
+    for (const row of (budgetRows || [])) {
+      budgetMap[row.key] = parseFloat(row.value) || 0;
+    }
+
+    const totalBudget = budgetMap.monthly_budget_usd || 33;
+    const budgets = {
+      x: budgetMap.budget_x_api_usd || 10,
+      gemini: budgetMap.budget_gemini_usd || 10,
+      claude: budgetMap.budget_claude_usd || 13,
+    };
+
+    // Build per-API usage info
+    const apis = ['x', 'gemini', 'claude'].map(cat => {
+      const usage = byCategoryMap[cat] || { category: cat, call_count: 0, total_cost: 0 };
+      const budget = budgets[cat];
+      return {
+        category: cat,
+        call_count: usage.call_count,
+        total_cost: parseFloat(usage.total_cost.toFixed(4)),
+        budget_usd: budget,
+        budget_used_percent: budget > 0 ? parseFloat(((usage.total_cost / budget) * 100).toFixed(1)) : 0,
+      };
+    });
 
     res.json({
       totalCostUsd: parseFloat(totalCost.toFixed(4)),
-      budgetUsd: budget,
-      budgetUsedPercent: parseFloat(((totalCost / budget) * 100).toFixed(1)),
-      byType: usageByType,
+      budgetUsd: totalBudget,
+      budgetUsedPercent: totalBudget > 0 ? parseFloat(((totalCost / totalBudget) * 100).toFixed(1)) : 0,
+      apis,
       daily: dailyUsage
     });
   } catch (error) {
