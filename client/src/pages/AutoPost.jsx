@@ -61,6 +61,8 @@ export default function AutoPost() {
   const [settings, setSettings] = useState({});
   const [logs, setLogs] = useState([]);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(null);
+  const [saveError, setSaveError] = useState(null);
   const [running, setRunning] = useState(null);
   const [activeTab, setActiveTab] = useState('settings');
   const [draftResult, setDraftResult] = useState(null);
@@ -150,6 +152,8 @@ export default function AutoPost() {
   const handleSave = async (postType) => {
     if (!currentAccount) return;
     const s = getSetting(postType);
+    setSaving(postType);
+    setSaveError(null);
     try {
       await put('/auto-post/settings', {
         accountId: currentAccount.id,
@@ -164,7 +168,9 @@ export default function AutoPost() {
       setTimeout(() => setSaved(false), 2000);
       await loadSettings();
     } catch (e) {
-      // error shown via useAPI
+      setSaveError({ postType, message: e.message || '保存に失敗しました' });
+    } finally {
+      setSaving(null);
     }
   };
 
@@ -376,10 +382,10 @@ export default function AutoPost() {
                   <div className="flex items-center gap-3 pt-2 border-t border-gray-100">
                     <button
                       onClick={() => handleSave(postType)}
-                      disabled={loading}
+                      disabled={saving === postType}
                       className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
                     >
-                      保存
+                      {saving === postType ? '保存中...' : '保存'}
                     </button>
                     <button
                       onClick={() => handleManualRun(postType)}
@@ -390,6 +396,9 @@ export default function AutoPost() {
                     </button>
                     {saved === postType && (
                       <span className="text-sm text-green-600">保存しました</span>
+                    )}
+                    {saveError && saveError.postType === postType && (
+                      <span className="text-sm text-red-600">{saveError.message}</span>
                     )}
                   </div>
 
