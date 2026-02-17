@@ -117,14 +117,18 @@ class AIProvider {
     const candidates = [];
     const patterns = text.split(/(?:^|\n)(?:\d+[\.\)]\s*|パターン\d+[:：]\s*)/);
     for (const pattern of patterns) {
-      const trimmed = pattern.trim();
+      let trimmed = pattern.trim();
       if (!trimmed) continue;
-      const hashtagMatches = trimmed.match(/#[\w\u3000-\u9FFF]+/g) || [];
-      candidates.push({ text: trimmed, hashtags: hashtagMatches });
+      // Remove hashtags if present
+      trimmed = trimmed.replace(/#[\w\u3000-\u9FFF]+/g, '').trim();
+      // Remove leading/trailing quotes
+      trimmed = trimmed.replace(/^[「『""]|[」』""]$/g, '').trim();
+      if (!trimmed) continue;
+      candidates.push({ text: trimmed, hashtags: [] });
     }
     if (candidates.length === 0) {
-      const hashtagMatches = text.match(/#[\w\u3000-\u9FFF]+/g) || [];
-      candidates.push({ text: text.trim(), hashtags: hashtagMatches });
+      let cleaned = text.trim().replace(/#[\w\u3000-\u9FFF]+/g, '').trim();
+      candidates.push({ text: cleaned, hashtags: [] });
     }
     return candidates.slice(0, 3);
   }

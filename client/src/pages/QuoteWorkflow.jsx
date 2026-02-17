@@ -292,9 +292,6 @@ export default function QuoteWorkflow() {
               >
                 <p className="text-xs font-medium text-gray-400 mb-1">候補 {i + 1}</p>
                 <p className="text-sm text-gray-800">{c.text}</p>
-                {c.hashtags.length > 0 && (
-                  <p className="text-xs text-purple-500 mt-1">{c.hashtags.join(' ')}</p>
-                )}
               </button>
             ))}
           </div>
