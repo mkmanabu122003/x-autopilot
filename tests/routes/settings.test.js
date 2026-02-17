@@ -118,7 +118,8 @@ describe('settings routes', () => {
 
   describe('GET /api/settings', () => {
     test('設定一覧を取得する', async () => {
-      mockSelect.mockReturnValueOnce({
+      // .select().limit() chain - mock limit as terminal
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({
           data: [
@@ -137,7 +138,7 @@ describe('settings routes', () => {
     });
 
     test('DB エラー時は 500 を返す', async () => {
-      mockSelect.mockReturnValueOnce({
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({
           data: null,
@@ -153,7 +154,7 @@ describe('settings routes', () => {
   });
 
   describe('PUT /api/settings', () => {
-    test('設定を正常に保存できる', async () => {
+    test('設定を正常に保存できる（バッチ upsert）', async () => {
       const app = createApp();
       const res = await request(app).put('/api/settings').send({
         system_prompt: 'updated prompt',
@@ -162,24 +163,31 @@ describe('settings routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(mockFrom).toHaveBeenCalledWith('settings');
-      expect(mockUpsert).toHaveBeenCalledTimes(2);
+      // Batch upsert: single call with array
+      expect(mockUpsert).toHaveBeenCalledTimes(1);
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { key: 'system_prompt', value: 'updated prompt' },
+          { key: 'monthly_budget_usd', value: '50' }
+        ]),
+        { onConflict: 'key' }
+      );
     });
 
-    test('各キーに対して upsert が呼ばれる', async () => {
+    test('許可されたキーのみ upsert される', async () => {
       const app = createApp();
       await request(app).put('/api/settings').send({
         system_prompt: 'new prompt',
-        default_hashtags: '#test'
+        default_hashtags: '#test',
+        unknown_key: 'should be filtered'
       });
 
-      expect(mockUpsert).toHaveBeenCalledWith(
+      const upsertRows = mockUpsert.mock.calls[0][0];
+      expect(upsertRows).toHaveLength(2);
+      expect(upsertRows).toEqual(expect.arrayContaining([
         { key: 'system_prompt', value: 'new prompt' },
-        { onConflict: 'key' }
-      );
-      expect(mockUpsert).toHaveBeenCalledWith(
-        { key: 'default_hashtags', value: '#test' },
-        { onConflict: 'key' }
-      );
+        { key: 'default_hashtags', value: '#test' }
+      ]));
     });
 
     test('upsert エラー時は 500 を返す', async () => {
@@ -275,13 +283,17 @@ describe('settings routes', () => {
       });
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
-      // cost settings が KV テーブルに保存される
+      // cost settings がバッチで KV テーブルに保存される
       expect(mockUpsert).toHaveBeenCalledWith(
-        { key: 'cost_monthly_budget_usd', value: '50' },
+        expect.arrayContaining([
+          { key: 'cost_monthly_budget_usd', value: '50' },
+          { key: 'cost_cache_enabled', value: 'true' }
+        ]),
         { onConflict: 'key' }
       );
+      // monthly_budget_usd は settings テーブルにも同期
       expect(mockUpsert).toHaveBeenCalledWith(
-        { key: 'cost_cache_enabled', value: 'true' },
+        { key: 'monthly_budget_usd', value: '50' },
         { onConflict: 'key' }
       );
     });
@@ -358,8 +370,8 @@ describe('settings routes', () => {
 
   describe('GET /api/settings/usage', () => {
     test('API利用状況と内訳を返す', async () => {
-      // api_usage_log: x_write and x_read entries
-      mockGte.mockImplementationOnce(() => ({
+      // api_usage_log: .gte().limit() - mock limit as terminal (1st call)
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({
           data: [
@@ -369,10 +381,10 @@ describe('settings routes', () => {
           ],
           error: null
         })
-      }));
+      });
 
-      // api_usage_logs: claude model entries
-      mockGte.mockImplementationOnce(() => ({
+      // api_usage_logs: .gte().limit() - mock limit as terminal (2nd call)
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({
           data: [
@@ -381,9 +393,9 @@ describe('settings routes', () => {
           ],
           error: null
         })
-      }));
+      });
 
-      // Budget rows from settings
+      // Budget rows from settings (no limit, uses .in() as terminal)
       mockIn.mockImplementationOnce(() => ({
         ...mockChain,
         then: (resolve) => resolve({
@@ -425,17 +437,17 @@ describe('settings routes', () => {
     });
 
     test('利用データがない場合も正常に返す', async () => {
-      // api_usage_log: empty
-      mockGte.mockImplementationOnce(() => ({
+      // api_usage_log: empty (limit terminal)
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({ data: [], error: null })
-      }));
-      // api_usage_logs: empty
-      mockGte.mockImplementationOnce(() => ({
+      });
+      // api_usage_logs: empty (limit terminal)
+      mockLimit.mockReturnValueOnce({
         ...mockChain,
         then: (resolve) => resolve({ data: [], error: null })
-      }));
-      // Budget rows
+      });
+      // Budget rows (in terminal)
       mockIn.mockImplementationOnce(() => ({
         ...mockChain,
         then: (resolve) => resolve({ data: [], error: null })

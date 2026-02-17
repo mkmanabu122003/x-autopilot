@@ -10,6 +10,19 @@ function isTableNotFound(error) {
   return msg.includes('schema cache') || msg.includes('relation') || msg.includes('does not exist');
 }
 
+// Allowed settings keys for PUT /api/settings validation
+const ALLOWED_SETTINGS_KEYS = [
+  'system_prompt', 'default_hashtags', 'confirm_before_post',
+  'competitor_fetch_interval', 'competitor_max_accounts', 'monthly_budget_usd',
+  'budget_x_api_usd', 'budget_gemini_usd', 'budget_claude_usd'
+];
+
+// Valid task types for prompt/model endpoints
+const VALID_TASK_TYPES = [
+  'tweet_generation', 'comment_generation', 'quote_rt_generation',
+  'competitor_analysis', 'performance_summary'
+];
+
 // Cost settings defaults
 const COST_DEFAULTS = {
   monthly_budget_usd: 33,
@@ -22,39 +35,70 @@ const COST_DEFAULTS = {
 
 const COST_KEYS = Object.keys(COST_DEFAULTS);
 
+// Cost KV key names for settings table fallback
+const COST_KV_KEYS = [
+  'cost_monthly_budget_usd', 'cost_budget_alert_80', 'cost_budget_pause_100',
+  'cost_batch_enabled', 'cost_cache_enabled', 'cost_batch_schedule_hour'
+];
+
 // Fallback: read cost settings from the settings key-value table
 async function getCostSettingsFromKV(sb) {
-  const kvKeys = COST_KEYS.map(k => `cost_${k}`);
-  const { data } = await sb.from('settings').select('key, value').in('key', kvKeys);
+  const { data } = await sb.from('settings').select('key, value').in('key', COST_KV_KEYS).limit(20);
+  return parseCostKVRows(data);
+}
+
+function parseCostKVRows(data) {
   const result = { ...COST_DEFAULTS };
-  for (const row of (data || [])) {
-    const key = row.key.replace('cost_', '');
-    if (row.value === 'true') result[key] = true;
-    else if (row.value === 'false') result[key] = false;
-    else if (!isNaN(Number(row.value))) result[key] = Number(row.value);
-    else result[key] = row.value;
+  const rows = data || [];
+  for (let i = 0; i < rows.length; i++) {
+    const key = rows[i].key.replace('cost_', '');
+    if (rows[i].value === 'true') result[key] = true;
+    else if (rows[i].value === 'false') result[key] = false;
+    else if (!isNaN(Number(rows[i].value))) result[key] = Number(rows[i].value);
+    else result[key] = rows[i].value;
   }
   return result;
 }
 
-// Fallback: save cost settings to the settings key-value table
-async function saveCostSettingsToKV(sb, updates) {
-  for (const key of COST_KEYS) {
-    if (updates[key] !== undefined) {
-      const { error } = await sb.from('settings').upsert(
-        { key: `cost_${key}`, value: String(updates[key]) },
-        { onConflict: 'key' }
-      );
-      if (error) throw error;
+// Fallback: save cost settings to the settings key-value table (batch)
+function buildCostKVRows(updates) {
+  const rows = [];
+  for (let i = 0; i < COST_KEYS.length; i++) {
+    if (updates[COST_KEYS[i]] !== undefined) {
+      rows.push({ key: `cost_${COST_KEYS[i]}`, value: String(updates[COST_KEYS[i]]) });
     }
   }
+  return rows;
+}
+
+async function saveCostSettingsToKV(sb, updates) {
+  const rows = buildCostKVRows(updates);
+  if (rows.length > 0) {
+    const { error } = await sb.from('settings').upsert(rows, { onConflict: 'key' });
+    if (error) throw error;
+  }
+}
+
+// Helper: load task model settings from KV fallback
+async function loadTaskModelKVRows(sb, defaults) {
+  const taskTypes = Object.keys(defaults);
+  const kvKeys = [];
+  for (let i = 0; i < taskTypes.length; i++) {
+    kvKeys.push(`task_model_${taskTypes[i]}`);
+  }
+  const { data } = await sb.from('settings').select('key, value').in('key', kvKeys).limit(20);
+  const parsed = [];
+  for (let i = 0; i < (data || []).length; i++) {
+    try { parsed.push(JSON.parse(data[i].value)); } catch (e) { /* ignore */ }
+  }
+  return parsed;
 }
 
 // GET /api/settings - Get all settings
 router.get('/', async (req, res) => {
   try {
     const sb = getDb();
-    const { data, error } = await sb.from('settings').select('key, value');
+    const { data, error } = await sb.from('settings').select('key, value').limit(100);
     if (error) throw error;
 
     const settings = {};
@@ -70,14 +114,23 @@ router.get('/', async (req, res) => {
 // PUT /api/settings - Update settings
 router.put('/', async (req, res) => {
   try {
-    const sb = getDb();
-    const updates = req.body;
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ error: 'Request body must be a JSON object' });
+    }
 
-    for (const [key, value] of Object.entries(updates)) {
-      const { error } = await sb.from('settings').upsert(
-        { key, value: String(value) },
-        { onConflict: 'key' }
-      );
+    // Build rows from allowed keys only
+    const rows = [];
+    for (let i = 0; i < ALLOWED_SETTINGS_KEYS.length; i++) {
+      const key = ALLOWED_SETTINGS_KEYS[i];
+      if (body[key] !== undefined) {
+        rows.push({ key, value: String(body[key]) });
+      }
+    }
+
+    if (rows.length > 0) {
+      const sb = getDb();
+      const { error } = await sb.from('settings').upsert(rows, { onConflict: 'key' });
       if (error) throw error;
     }
 
@@ -94,10 +147,11 @@ router.get('/usage', async (req, res) => {
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-    // Fetch all usage rows this month
+    // Fetch usage rows this month (capped for safety)
     const { data: usageRows, error: usageError } = await sb.from('api_usage_log')
       .select('api_type, cost_usd, created_at')
-      .gte('created_at', startOfMonth);
+      .gte('created_at', startOfMonth)
+      .limit(10000);
     if (usageError) throw usageError;
 
     // Map api_type to category: x_write/x_read/x_user/x_search -> 'x', claude -> 'claude', gemini -> 'gemini'
@@ -142,10 +196,11 @@ router.get('/usage', async (req, res) => {
       breakdownMap[cat][subkey].total_cost += row.cost_usd || 0;
     }
 
-    // Also include detailed usage logs (with model info)
+    // Also include detailed usage logs (with model info, capped for safety)
     const { data: detailedRows } = await sb.from('api_usage_logs')
       .select('provider, model, estimated_cost_usd, timestamp')
-      .gte('timestamp', startOfMonth);
+      .gte('timestamp', startOfMonth)
+      .limit(10000);
 
     for (const row of (detailedRows || [])) {
       const cat = toCategory(row.provider);
@@ -170,18 +225,23 @@ router.get('/usage', async (req, res) => {
       breakdownMap[cat][subkey].total_cost += row.estimated_cost_usd || 0;
     }
 
-    const dailyUsage = Object.entries(dailyMap)
-      .map(([date, daily_cost]) => ({ date, daily_cost }))
-      .sort((a, b) => a.date.localeCompare(b.date));
-
     // Fetch per-API budgets
+    const budgetKeys = ['monthly_budget_usd', 'budget_x_api_usd', 'budget_gemini_usd', 'budget_claude_usd'];
     const { data: budgetRows } = await sb.from('settings')
       .select('key, value')
-      .in('key', ['monthly_budget_usd', 'budget_x_api_usd', 'budget_gemini_usd', 'budget_claude_usd']);
+      .in('key', budgetKeys)
+      .limit(4);
     const budgetMap = {};
-    for (const row of (budgetRows || [])) {
-      budgetMap[row.key] = parseFloat(row.value) || 0;
+    for (let i = 0; i < (budgetRows || []).length; i++) {
+      budgetMap[budgetRows[i].key] = parseFloat(budgetRows[i].value) || 0;
     }
+
+    const dailyEntries = Object.entries(dailyMap);
+    const dailyUsage = [];
+    for (let i = 0; i < dailyEntries.length; i++) {
+      dailyUsage.push({ date: dailyEntries[i][0], daily_cost: dailyEntries[i][1] });
+    }
+    dailyUsage.sort((a, b) => a.date.localeCompare(b.date));
 
     const totalBudget = budgetMap.monthly_budget_usd || 33;
     const budgets = {
@@ -191,21 +251,27 @@ router.get('/usage', async (req, res) => {
     };
 
     // Build per-API usage info with breakdown
-    const apis = ['x', 'gemini', 'claude'].map(cat => {
+    const apiCategories = ['x', 'gemini', 'claude'];
+    const apis = [];
+    for (let i = 0; i < apiCategories.length; i++) {
+      const cat = apiCategories[i];
       const usage = byCategoryMap[cat] || { category: cat, call_count: 0, total_cost: 0 };
       const budget = budgets[cat];
-      const breakdown = Object.values(breakdownMap[cat] || {})
-        .map(b => ({ ...b, total_cost: parseFloat(b.total_cost.toFixed(4)) }))
-        .sort((a, b) => b.total_cost - a.total_cost);
-      return {
+      const breakdownValues = Object.values(breakdownMap[cat] || {});
+      const breakdown = [];
+      for (let j = 0; j < breakdownValues.length; j++) {
+        breakdown.push({ ...breakdownValues[j], total_cost: parseFloat(breakdownValues[j].total_cost.toFixed(4)) });
+      }
+      breakdown.sort((a, b) => b.total_cost - a.total_cost);
+      apis.push({
         category: cat,
         call_count: usage.call_count,
         total_cost: parseFloat(usage.total_cost.toFixed(4)),
         budget_usd: budget,
         budget_used_percent: budget > 0 ? parseFloat(((usage.total_cost / budget) * 100).toFixed(1)) : 0,
         breakdown,
-      };
-    });
+      });
+    }
 
     res.json({
       totalCostUsd: parseFloat(totalCost.toFixed(4)),
@@ -242,11 +308,18 @@ router.get('/cost', async (req, res) => {
 // PUT /api/settings/cost - Update cost optimization settings
 router.put('/cost', async (req, res) => {
   try {
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ error: 'Request body must be a JSON object' });
+    }
     const sb = getDb();
-    const updates = {
-      ...req.body,
-      updated_at: new Date().toISOString()
-    };
+    // Only allow known cost setting fields
+    const updates = { updated_at: new Date().toISOString() };
+    for (let i = 0; i < COST_KEYS.length; i++) {
+      if (body[COST_KEYS[i]] !== undefined) {
+        updates[COST_KEYS[i]] = body[COST_KEYS[i]];
+      }
+    }
 
     // Check if row exists
     const { data: existing, error: selectError } = await sb.from('cost_settings').select('id').limit(1).single();
@@ -297,7 +370,7 @@ router.get('/task-models', async (req, res) => {
 
     // Default task model settings
     const DEFAULTS = {
-      competitor_analysis: { claude_model: 'claude-opus-4-6', gemini_model: 'gemini-2.5-pro', preferred_provider: 'claude', effort: 'high', max_tokens: 2048 },
+      competitor_analysis: { claude_model: 'claude-sonnet-4-5-20250929', gemini_model: 'gemini-2.5-pro', preferred_provider: 'claude', effort: 'high', max_tokens: 2048 },
       tweet_generation: { claude_model: 'claude-sonnet-4-5-20250929', gemini_model: 'gemini-2.5-flash', preferred_provider: 'claude', effort: 'medium', max_tokens: 512 },
       comment_generation: { claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', preferred_provider: 'claude', effort: 'low', max_tokens: 256 },
       quote_rt_generation: { claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', preferred_provider: 'claude', effort: 'low', max_tokens: 256 },
@@ -309,7 +382,8 @@ router.get('/task-models', async (req, res) => {
     try {
       const { data, error } = await sb.from('task_model_settings')
         .select('*')
-        .order('task_type');
+        .order('task_type')
+        .limit(20);
       if (isTableNotFound(error)) {
         useKVFallback = true;
       } else if (!error && data) {
@@ -321,13 +395,9 @@ router.get('/task-models', async (req, res) => {
 
     // If table doesn't exist, try reading from settings KV fallback
     if (useKVFallback) {
-      const kvKeys = Object.keys(DEFAULTS).map(t => `task_model_${t}`);
-      const { data: kvRows } = await sb.from('settings').select('key, value').in('key', kvKeys);
-      for (const row of (kvRows || [])) {
-        try {
-          const parsed = JSON.parse(row.value);
-          rows.push(parsed);
-        } catch (e) { /* ignore parse errors */ }
+      const kvRows = await loadTaskModelKVRows(sb, DEFAULTS);
+      for (let i = 0; i < kvRows.length; i++) {
+        rows.push(kvRows[i]);
       }
     }
 
@@ -350,20 +420,31 @@ router.get('/task-models', async (req, res) => {
   }
 });
 
+const TASK_MODEL_FIELDS = ['claude_model', 'gemini_model', 'preferred_provider', 'effort', 'max_tokens'];
+
+function buildTaskModelUpdates(taskType, body) {
+  const updates = { task_type: taskType, updated_at: new Date().toISOString() };
+  for (let i = 0; i < TASK_MODEL_FIELDS.length; i++) {
+    if (body[TASK_MODEL_FIELDS[i]] !== undefined) {
+      updates[TASK_MODEL_FIELDS[i]] = body[TASK_MODEL_FIELDS[i]];
+    }
+  }
+  return updates;
+}
+
 // PUT /api/settings/task-models/:taskType - Update task model settings
 router.put('/task-models/:taskType', async (req, res) => {
   try {
-    const sb = getDb();
     const { taskType } = req.params;
-
-    // Only include known columns to avoid errors with missing columns
-    const knownFields = ['claude_model', 'gemini_model', 'preferred_provider', 'effort', 'max_tokens'];
-    const updates = { task_type: taskType, updated_at: new Date().toISOString() };
-    for (const field of knownFields) {
-      if (req.body[field] !== undefined) {
-        updates[field] = req.body[field];
-      }
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ error: 'Request body must be a JSON object' });
     }
+    if (!VALID_TASK_TYPES.includes(taskType)) {
+      return res.status(400).json({ error: 'Invalid task type' });
+    }
+    const updates = buildTaskModelUpdates(taskType, body);
+    const sb = getDb();
 
     // Try upsert with preferred_provider first
     let { error } = await sb.from('task_model_settings')
@@ -424,11 +505,13 @@ router.get('/prompts/:taskType', async (req, res) => {
     }
 
     // Return default prompt
-    const template = defaultPrompts[taskType];
+    const template = defaultPrompts[taskType] || {};
+    const sysPrompt = template['system'] || '';
+    const usrTemplate = template['userTemplate'] || '';
     res.json({
       task_type: taskType,
-      system_prompt: template ? template.system : '',
-      user_template: template ? template.userTemplate : '',
+      system_prompt: sysPrompt,
+      user_template: usrTemplate,
       is_custom: false
     });
   } catch (error) {
@@ -440,7 +523,14 @@ router.get('/prompts/:taskType', async (req, res) => {
 router.put('/prompts/:taskType', async (req, res) => {
   try {
     const { taskType } = req.params;
-    const { system_prompt, user_template } = req.body;
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+      return res.status(400).json({ error: 'Request body must be a JSON object' });
+    }
+    if (!VALID_TASK_TYPES.includes(taskType)) {
+      return res.status(400).json({ error: 'Invalid task type' });
+    }
+    const { system_prompt, user_template } = body;
     const sb = getDb();
 
     const promptData = {
