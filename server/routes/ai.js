@@ -36,28 +36,24 @@ router.post('/generate', async (req, res) => {
     const { targetTweetText, targetHandle, quoteAngle } = req.body;
     if (postType === 'quote' && targetTweetText) {
       const angleLabels = {
-        agree: '同意+補足（共感しつつ自分の知見を追加）',
-        counter: '反論（別の視点を提示）',
-        question: '質問（議論を促す問いかけ）',
-        experience: '体験談（自身の経験を交えたコメント）',
-        data: 'データ補足（数字や事実で補強）',
+        agree: '共感',
+        counter: '反論',
+        question: '質問',
+        experience: '体験談',
+        data: 'データ補足',
       };
-      const angleDesc = angleLabels[quoteAngle] || '自由なアングル';
-      quotePrompt = `以下のツイートに対する引用RTコメントを3パターン作成してください。
+      const stance = angleLabels[quoteAngle] || '特になし';
+      quotePrompt = `以下の元ツイートに対する引用リツイートを生成してください。
 
-引用元ツイート（@${targetHandle || '不明'}）:
-「${targetTweetText}」
+# 元ツイート
+投稿者：@${targetHandle || '不明'}
+内容：
+${targetTweetText}
 
-アングル: ${angleDesc}
+# 補足情報
+- 希望するスタンス：${stance}
 
-条件:
-- 140文字以内で短く鋭く
-- ハッシュタグ禁止、絵文字禁止
-- 元ツイートの単なる要約や感想ではなく、独自の切り口・知見・体験を加える
-- 「この人の視点おもしろい、フォローしよう」と思わせる内容にする
-- 各パターンは明確に異なるアプローチで書く
-
-番号付きで出力してください（1. 2. 3.）。本文のみ、余計な説明は不要です。`;
+上記をもとに、2〜3案を生成してください。`;
     }
 
     const options = {

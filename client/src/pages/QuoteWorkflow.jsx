@@ -373,8 +373,12 @@ export default function QuoteWorkflow() {
                 onClick={() => handleSelectCandidate(c)}
                 className="w-full text-left p-3 border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 transition-colors"
               >
-                <p className="text-xs font-medium text-gray-400 mb-1">候補 {i + 1}</p>
-                <p className="text-sm text-gray-800">{c.text}</p>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium text-gray-400">候補 {i + 1}</span>
+                  {c.label && <span className="text-xs bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded">{c.label}</span>}
+                  <span className="text-xs text-gray-300 ml-auto">{c.text.length}文字</span>
+                </div>
+                <p className="text-sm text-gray-800 whitespace-pre-wrap">{c.text}</p>
               </button>
             ))}
           </div>

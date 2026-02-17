@@ -31,7 +31,7 @@ const DEFAULT_MAX_TOKENS_MAP = {
   competitor_analysis: 2048,
   tweet_generation: 512,
   comment_generation: 256,
-  quote_rt_generation: 256,
+  quote_rt_generation: 2000,
   performance_summary: 1024
 };
 
@@ -114,21 +114,38 @@ class AIProvider {
   }
 
   parseCandidates(text) {
+    // Try JSON format first (variants array with label/body)
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*"variants"[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed.variants && Array.isArray(parsed.variants) && parsed.variants.length > 0) {
+          return parsed.variants.slice(0, 3).map(v => ({
+            text: v.body || v.text || '',
+            label: v.label || '',
+            charCount: v.char_count || (v.body || v.text || '').length,
+            hashtags: []
+          }));
+        }
+      }
+    } catch (e) {
+      // JSON parse failed, fall back to text parsing
+    }
+
+    // Fallback: split by numbered patterns
     const candidates = [];
     const patterns = text.split(/(?:^|\n)(?:\d+[\.\)]\s*|パターン\d+[:：]\s*)/);
     for (const pattern of patterns) {
       let trimmed = pattern.trim();
       if (!trimmed) continue;
-      // Remove hashtags if present
       trimmed = trimmed.replace(/#[\w\u3000-\u9FFF]+/g, '').trim();
-      // Remove leading/trailing quotes
       trimmed = trimmed.replace(/^[「『""]|[」』""]$/g, '').trim();
       if (!trimmed) continue;
-      candidates.push({ text: trimmed, hashtags: [] });
+      candidates.push({ text: trimmed, label: '', hashtags: [] });
     }
     if (candidates.length === 0) {
       let cleaned = text.trim().replace(/#[\w\u3000-\u9FFF]+/g, '').trim();
-      candidates.push({ text: cleaned, hashtags: [] });
+      candidates.push({ text: cleaned, label: '', hashtags: [] });
     }
     return candidates.slice(0, 3);
   }
