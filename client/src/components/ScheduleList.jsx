@@ -2,6 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useAPI } from '../hooks/useAPI';
 import { formatDate } from '../utils/formatters';
 
+// Convert a UTC/ISO date string to local datetime-local input value (YYYY-MM-DDTHH:mm)
+function toLocalDatetimeValue(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
+
 export default function ScheduleList() {
   const [posts, setPosts] = useState([]);
   const [editingId, setEditingId] = useState(null);
@@ -18,7 +31,11 @@ export default function ScheduleList() {
     }
   };
 
-  useEffect(() => { fetchPosts(); }, []);
+  useEffect(() => {
+    fetchPosts();
+    const interval = setInterval(fetchPosts, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const handleDelete = async (id) => {
     try {
@@ -32,7 +49,7 @@ export default function ScheduleList() {
   const handleEdit = (post) => {
     setEditingId(post.id);
     setEditText(post.text);
-    setEditTime(post.scheduled_at ? post.scheduled_at.slice(0, 16) : '');
+    setEditTime(toLocalDatetimeValue(post.scheduled_at));
   };
 
   const handleSave = async () => {

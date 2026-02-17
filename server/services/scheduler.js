@@ -7,13 +7,20 @@ const { BatchManager } = require('./batch-manager');
 function startScheduler() {
   // Check for scheduled posts every minute
   cron.schedule('* * * * *', async () => {
-    await processScheduledPosts();
+    try {
+      await processScheduledPosts();
+    } catch (err) {
+      console.error('Scheduler error (processScheduledPosts):', err.message);
+    }
   });
 
   // Fetch competitor tweets based on configured interval
   cron.schedule('0 3 * * *', async () => {
-    // Runs daily at 3 AM, but respects the interval setting
-    await fetchCompetitorTweetsIfDue();
+    try {
+      await fetchCompetitorTweetsIfDue();
+    } catch (err) {
+      console.error('Scheduler error (fetchCompetitorTweets):', err.message);
+    }
   });
 
   // Poll batch API results every 5 minutes
@@ -38,7 +45,14 @@ async function processScheduledPosts() {
     .eq('status', 'scheduled')
     .lte('scheduled_at', now);
 
-  if (error || !posts) return;
+  if (error) {
+    console.error('Scheduler: failed to query scheduled posts:', error.message || error);
+    return;
+  }
+
+  if (!posts || posts.length === 0) return;
+
+  console.log(`Scheduler: found ${posts.length} scheduled post(s) to process`);
 
   for (const post of posts) {
     try {
@@ -52,17 +66,24 @@ async function processScheduledPosts() {
 
       const result = await postTweet(post.text, options);
 
-      await sb.from('my_posts')
+      const { error: updateError } = await sb.from('my_posts')
         .update({ status: 'posted', tweet_id: result.data.id, posted_at: new Date().toISOString() })
         .eq('id', post.id);
 
-      console.log(`Scheduled post ${post.id} published: ${result.data.id}`);
+      if (updateError) {
+        console.error(`Scheduler: posted tweet but failed to update DB for post ${post.id}:`, updateError.message);
+      } else {
+        console.log(`Scheduled post ${post.id} published: ${result.data.id}`);
+      }
     } catch (err) {
-      await sb.from('my_posts')
-        .update({ status: 'failed' })
-        .eq('id', post.id);
-
       console.error(`Failed to publish scheduled post ${post.id}:`, err.message);
+      try {
+        await sb.from('my_posts')
+          .update({ status: 'failed' })
+          .eq('id', post.id);
+      } catch (updateErr) {
+        console.error(`Scheduler: also failed to mark post ${post.id} as failed:`, updateErr.message);
+      }
     }
   }
 }
