@@ -328,4 +328,66 @@ async function searchRecentTweets(query, accountId, maxResults = 100, options = 
   return data;
 }
 
-module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials, searchRecentTweets, checkXApiBudget, apiCache };
+async function getTweetMetrics(tweetIds, accountId) {
+  if (!accountId) throw new Error('accountId is required');
+  if (!tweetIds || tweetIds.length === 0) return [];
+
+  const credentials = await getAccountCredentials(accountId);
+  if (!credentials.bearer_token) throw new Error('Bearer token is not set for this account');
+
+  // X API allows up to 100 tweet IDs per request
+  const chunks = [];
+  for (let i = 0; i < tweetIds.length; i += 100) {
+    chunks.push(tweetIds.slice(i, i + 100));
+  }
+
+  const allTweets = [];
+  for (const chunk of chunks) {
+    const params = new URLSearchParams({
+      'ids': chunk.join(','),
+      'tweet.fields': 'public_metrics,created_at'
+    });
+    const fullUrl = `${API_BASE}/2/tweets?${params}`;
+
+    const response = await fetch(fullUrl, {
+      headers: { 'Authorization': `Bearer ${credentials.bearer_token}` }
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      console.error(`getTweetMetrics error: ${response.status}`, error);
+      continue;
+    }
+
+    const data = await response.json();
+    if (data.data) allTweets.push(...data.data);
+    await logApiUsage('x_read', 'GET /2/tweets', chunk.length * 0.001, accountId);
+  }
+
+  return allTweets;
+}
+
+async function getOwnProfile(accountId) {
+  if (!accountId) throw new Error('accountId is required');
+
+  const credentials = await getAccountCredentials(accountId);
+  const url = `${API_BASE}/2/users/me`;
+  const params = { 'user.fields': 'public_metrics,username,name,profile_image_url' };
+  const fullUrl = `${url}?${new URLSearchParams(params)}`;
+  const authHeader = getOAuthHeader('GET', url, credentials, params);
+
+  const response = await fetch(fullUrl, {
+    headers: { 'Authorization': authHeader }
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(`X API error ${response.status}: ${JSON.stringify(error)}`);
+  }
+
+  const data = await response.json();
+  await logApiUsage('x_user', 'GET /2/users/me', 0.005, accountId);
+  return data.data;
+}
+
+module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials, searchRecentTweets, checkXApiBudget, apiCache, getTweetMetrics, getOwnProfile };

@@ -3,6 +3,7 @@ const { getDb } = require('../db/database');
 const { postTweet, getUserTweets } = require('./x-api');
 const { calculateEngagementRate } = require('./analytics');
 const { BatchManager } = require('./batch-manager');
+const { refreshOwnPostMetrics, recordFollowerSnapshot } = require('./growth-analytics');
 
 function startScheduler() {
   // Check for scheduled posts every minute
@@ -26,7 +27,45 @@ function startScheduler() {
     }
   });
 
+  // Refresh own post metrics every 6 hours
+  cron.schedule('0 */6 * * *', async () => {
+    await refreshAllAccountMetrics();
+  });
+
+  // Record follower snapshots daily at 9 AM
+  cron.schedule('0 9 * * *', async () => {
+    await recordAllFollowerSnapshots();
+  });
+
   console.log('Scheduler started');
+}
+
+async function refreshAllAccountMetrics() {
+  try {
+    const sb = getDb();
+    const { data: accounts } = await sb.from('x_accounts').select('id');
+    if (!accounts) return;
+
+    for (const account of accounts) {
+      await refreshOwnPostMetrics(account.id);
+    }
+  } catch (err) {
+    console.error('Error refreshing own post metrics:', err.message);
+  }
+}
+
+async function recordAllFollowerSnapshots() {
+  try {
+    const sb = getDb();
+    const { data: accounts } = await sb.from('x_accounts').select('id');
+    if (!accounts) return;
+
+    for (const account of accounts) {
+      await recordFollowerSnapshot(account.id);
+    }
+  } catch (err) {
+    console.error('Error recording follower snapshots:', err.message);
+  }
 }
 
 async function processScheduledPosts() {

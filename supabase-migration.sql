@@ -196,3 +196,33 @@ INSERT INTO task_model_settings (task_type, claude_model, gemini_model, effort, 
   ('quote_rt_generation', 'claude-haiku-4-5-20251001', 'gemini-2.0-flash', 'low', 256),
   ('performance_summary', 'claude-haiku-4-5-20251001', 'gemini-2.0-flash', 'low', 1024)
 ON CONFLICT (task_type) DO NOTHING;
+
+-- ============================================
+-- Growth & Monetization Dashboard (Phase 6)
+-- ============================================
+
+-- Add engagement metrics columns to my_posts for own post tracking
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS like_count INTEGER DEFAULT 0;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS retweet_count INTEGER DEFAULT 0;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS reply_count INTEGER DEFAULT 0;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS impression_count INTEGER DEFAULT 0;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS quote_count INTEGER DEFAULT 0;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS bookmark_count INTEGER DEFAULT 0;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS engagement_rate REAL DEFAULT 0;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS metrics_updated_at TIMESTAMPTZ;
+
+-- Follower snapshot tracking table
+CREATE TABLE IF NOT EXISTS follower_snapshots (
+  id SERIAL PRIMARY KEY,
+  account_id INTEGER REFERENCES x_accounts(id) ON DELETE CASCADE,
+  follower_count INTEGER NOT NULL DEFAULT 0,
+  following_count INTEGER NOT NULL DEFAULT 0,
+  tweet_count INTEGER NOT NULL DEFAULT 0,
+  listed_count INTEGER NOT NULL DEFAULT 0,
+  recorded_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_follower_snapshots_account ON follower_snapshots(account_id);
+CREATE INDEX IF NOT EXISTS idx_follower_snapshots_recorded ON follower_snapshots(recorded_at);
+CREATE INDEX IF NOT EXISTS idx_my_posts_posted_at ON my_posts(posted_at);
+CREATE INDEX IF NOT EXISTS idx_my_posts_engagement_rate ON my_posts(engagement_rate DESC);
