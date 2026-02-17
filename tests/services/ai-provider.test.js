@@ -1,0 +1,185 @@
+const { getAIProvider, getAvailableModels, AIProvider, ClaudeProvider } = require('../../server/services/ai-provider');
+
+describe('ai-provider', () => {
+  describe('getAvailableModels', () => {
+    test('claude と gemini の両プロバイダーを返す', () => {
+      const models = getAvailableModels();
+      expect(models).toHaveProperty('claude');
+      expect(models).toHaveProperty('gemini');
+    });
+
+    test('claude プロバイダーにモデル一覧がある', () => {
+      const models = getAvailableModels();
+      expect(models.claude.models.length).toBeGreaterThan(0);
+      const ids = models.claude.models.map(m => m.id);
+      expect(ids).toContain('claude-sonnet-4-20250514');
+      expect(ids).toContain('claude-opus-4-6');
+      expect(ids).toContain('claude-haiku-4-5-20251001');
+    });
+
+    test('gemini プロバイダーにモデル一覧がある', () => {
+      const models = getAvailableModels();
+      expect(models.gemini.models.length).toBeGreaterThan(0);
+      const ids = models.gemini.models.map(m => m.id);
+      expect(ids).toContain('gemini-2.0-flash');
+      expect(ids).toContain('gemini-2.5-pro');
+    });
+
+    test('各モデルに id と label がある', () => {
+      const models = getAvailableModels();
+      for (const provider of Object.values(models)) {
+        for (const model of provider.models) {
+          expect(model).toHaveProperty('id');
+          expect(model).toHaveProperty('label');
+          expect(typeof model.id).toBe('string');
+          expect(typeof model.label).toBe('string');
+        }
+      }
+    });
+  });
+
+  describe('getAIProvider', () => {
+    test('claude プロバイダーを返す', () => {
+      const provider = getAIProvider('claude');
+      expect(provider).toBeInstanceOf(ClaudeProvider);
+    });
+
+    test('gemini プロバイダーを返す', () => {
+      const provider = getAIProvider('gemini');
+      expect(provider).toBeDefined();
+    });
+
+    test('不明なプロバイダーでエラーを投げる', () => {
+      expect(() => getAIProvider('openai')).toThrow('Unknown AI provider: openai');
+    });
+
+    test('空文字列でエラーを投げる', () => {
+      expect(() => getAIProvider('')).toThrow('Unknown AI provider: ');
+    });
+  });
+
+  describe('AIProvider.inferTaskType', () => {
+    let provider;
+
+    beforeEach(() => {
+      provider = new AIProvider();
+    });
+
+    test('quote タイプを正しく推論', () => {
+      expect(provider.inferTaskType('quote')).toBe('quote_rt_generation');
+    });
+
+    test('reply タイプを正しく推論', () => {
+      expect(provider.inferTaskType('reply')).toBe('reply_generation');
+    });
+
+    test('analysis タイプを正しく推論', () => {
+      expect(provider.inferTaskType('analysis')).toBe('competitor_analysis');
+    });
+
+    test('summary タイプを正しく推論', () => {
+      expect(provider.inferTaskType('summary')).toBe('performance_summary');
+    });
+
+    test('デフォルトは tweet_generation', () => {
+      expect(provider.inferTaskType('new')).toBe('tweet_generation');
+      expect(provider.inferTaskType(undefined)).toBe('tweet_generation');
+      expect(provider.inferTaskType('')).toBe('tweet_generation');
+    });
+  });
+
+  describe('AIProvider.parseCandidates', () => {
+    let provider;
+
+    beforeEach(() => {
+      provider = new AIProvider();
+    });
+
+    test('JSON形式のvariants配列をパースする', () => {
+      const text = '{"variants":[{"label":"共感型","body":"テスト投稿1","char_count":5},{"label":"情報型","body":"テスト投稿2","char_count":5}]}';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(2);
+      expect(result[0].text).toBe('テスト投稿1');
+      expect(result[0].label).toBe('共感型');
+      expect(result[1].text).toBe('テスト投稿2');
+    });
+
+    test('JSON形式で最大3つまでの候補を返す', () => {
+      const variants = Array.from({ length: 5 }, (_, i) => ({
+        label: `label${i}`,
+        body: `body${i}`,
+        char_count: 5
+      }));
+      const text = JSON.stringify({ variants });
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(3);
+    });
+
+    test('番号付きパターンをパースする', () => {
+      const text = '1. 最初のツイート案\n2. 二番目のツイート案\n3. 三番目のツイート案';
+      const result = provider.parseCandidates(text);
+      expect(result.length).toBeGreaterThanOrEqual(1);
+      expect(result.length).toBeLessThanOrEqual(3);
+    });
+
+    test('パターンN形式をパースする', () => {
+      const text = 'パターン1：最初のツイート\nパターン2：二番目のツイート';
+      const result = provider.parseCandidates(text);
+      expect(result.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('プレーンテキストの場合は1つの候補を返す', () => {
+      const text = 'これはシンプルなツイートです';
+      const result = provider.parseCandidates(text);
+      expect(result.length).toBeGreaterThanOrEqual(1);
+      expect(result[0].text).toBeTruthy();
+    });
+
+    test('空文字列でもエラーにならない', () => {
+      const result = provider.parseCandidates('');
+      expect(result.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('JSON周辺にテキストがあっても正しくパースする', () => {
+      const text = 'はい、以下が候補です。\n{"variants":[{"label":"テスト","body":"ツイート内容","char_count":6}]}\n以上です。';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(1);
+      expect(result[0].text).toBe('ツイート内容');
+    });
+
+    test('body が無い場合は text フィールドを使う', () => {
+      const text = '{"variants":[{"label":"テスト","text":"代替テキスト","char_count":5}]}';
+      const result = provider.parseCandidates(text);
+      expect(result[0].text).toBe('代替テキスト');
+    });
+  });
+
+  describe('ClaudeProvider', () => {
+    let provider;
+
+    beforeEach(() => {
+      provider = new ClaudeProvider();
+    });
+
+    test('Opus モデルを正しく識別する', () => {
+      expect(provider.isOpusModel('claude-opus-4-6')).toBe(true);
+      expect(provider.isOpusModel('claude-sonnet-4-20250514')).toBe(false);
+      expect(provider.isOpusModel('claude-haiku-4-5-20251001')).toBe(false);
+    });
+
+    test('Opus モデルには thinking 設定を返す', () => {
+      const config = provider.getThinkingConfig('claude-opus-4-6');
+      expect(config).toEqual({ type: 'adaptive' });
+    });
+
+    test('非 Opus モデルには thinking 設定を返さない', () => {
+      expect(provider.getThinkingConfig('claude-sonnet-4-20250514')).toBeUndefined();
+      expect(provider.getThinkingConfig('claude-haiku-4-5-20251001')).toBeUndefined();
+    });
+
+    test('null/undefined モデルでも isOpusModel がエラーにならない', () => {
+      expect(provider.isOpusModel(null)).toBeFalsy();
+      expect(provider.isOpusModel(undefined)).toBeFalsy();
+    });
+  });
+});
