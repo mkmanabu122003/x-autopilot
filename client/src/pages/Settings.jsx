@@ -43,6 +43,8 @@ export default function Settings() {
   const [selectedPromptTask, setSelectedPromptTask] = useState('tweet_generation');
   const [promptData, setPromptData] = useState(null);
   const [costSaved, setCostSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const [form, setForm] = useState({
     competitor_fetch_interval: '',
@@ -97,12 +99,16 @@ export default function Settings() {
   }, [get, selectedPromptTask]);
 
   const handleSave = async () => {
+    setSaving(true);
+    setSaveError('');
     try {
       await updateSettings(form);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch (err) {
-      // ignore
+      setSaveError(err.message || '設定の保存に失敗しました');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -192,12 +198,16 @@ export default function Settings() {
   };
 
   const handleSaveCostSettings = async () => {
+    setSaving(true);
+    setSaveError('');
     try {
       await put('/settings/cost', costSettings);
       setCostSaved(true);
       setTimeout(() => setCostSaved(false), 2000);
     } catch (err) {
-      // ignore
+      setSaveError(err.message || 'コスト設定の保存に失敗しました');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -212,6 +222,8 @@ export default function Settings() {
 
   const handleSavePrompt = async () => {
     if (!promptData) return;
+    setSaving(true);
+    setSaveError('');
     try {
       await put(`/settings/prompts/${selectedPromptTask}`, {
         system_prompt: promptData.system_prompt,
@@ -220,7 +232,9 @@ export default function Settings() {
       setCostSaved(true);
       setTimeout(() => setCostSaved(false), 2000);
     } catch (err) {
-      // ignore
+      setSaveError(err.message || 'プロンプトの保存に失敗しました');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -559,11 +573,12 @@ export default function Settings() {
 
           {/* Save cost settings */}
           <div className="flex items-center gap-3">
-            <button onClick={handleSaveCostSettings} disabled={loading}
+            <button onClick={handleSaveCostSettings} disabled={saving}
               className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {loading ? '保存中...' : 'コスト設定を保存'}
+              {saving ? '保存中...' : 'コスト設定を保存'}
             </button>
             {costSaved && <span className="text-sm text-green-600">保存しました</span>}
+            {saveError && <span className="text-sm text-red-500">{saveError}</span>}
           </div>
         </>
       )}
@@ -630,11 +645,12 @@ export default function Settings() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button onClick={handleSave} disabled={loading}
+            <button onClick={handleSave} disabled={saving}
               className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {loading ? '保存中...' : '設定を保存'}
+              {saving ? '保存中...' : '設定を保存'}
             </button>
             {saved && <span className="text-sm text-green-600">保存しました</span>}
+            {saveError && <span className="text-sm text-red-500">{saveError}</span>}
           </div>
         </>
       )}
@@ -674,11 +690,12 @@ export default function Settings() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button onClick={handleSave} disabled={loading}
+            <button onClick={handleSave} disabled={saving}
               className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {loading ? '保存中...' : '設定を保存'}
+              {saving ? '保存中...' : '設定を保存'}
             </button>
             {saved && <span className="text-sm text-green-600">保存しました</span>}
+            {saveError && <span className="text-sm text-red-500">{saveError}</span>}
           </div>
         </>
       )}
@@ -698,11 +715,12 @@ export default function Settings() {
           </div>
 
           <div className="flex items-center gap-3">
-            <button onClick={handleSave} disabled={loading}
+            <button onClick={handleSave} disabled={saving}
               className="px-6 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors">
-              {loading ? '保存中...' : '設定を保存'}
+              {saving ? '保存中...' : '設定を保存'}
             </button>
             {saved && <span className="text-sm text-green-600">保存しました</span>}
+            {saveError && <span className="text-sm text-red-500">{saveError}</span>}
           </div>
         </>
       )}
