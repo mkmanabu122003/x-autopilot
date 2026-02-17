@@ -244,6 +244,93 @@ describe('settings routes', () => {
     });
   });
 
+  describe('テーブル未作成時のフォールバック', () => {
+    const TABLE_NOT_FOUND_ERROR = { message: "Could not find the table 'public.cost_settings' in the schema cache" };
+
+    test('GET /api/settings/cost - テーブルがない場合はデフォルト値を返す', async () => {
+      mockSingle.mockResolvedValueOnce({ data: null, error: TABLE_NOT_FOUND_ERROR });
+      // KV fallback: settings テーブルからの読み取り（空）
+      mockIn.mockImplementationOnce(() => ({
+        ...mockChain,
+        then: (resolve) => resolve({ data: [] })
+      }));
+
+      const app = createApp();
+      const res = await request(app).get('/api/settings/cost');
+      expect(res.status).toBe(200);
+      expect(res.body.monthly_budget_usd).toBe(33);
+      expect(res.body.cache_enabled).toBe(true);
+    });
+
+    test('PUT /api/settings/cost - テーブルがない場合は settings テーブルにフォールバック保存', async () => {
+      mockSingle.mockResolvedValueOnce({
+        data: null,
+        error: { message: "Could not find the table 'public.cost_settings' in the schema cache" }
+      });
+
+      const app = createApp();
+      const res = await request(app).put('/api/settings/cost').send({
+        monthly_budget_usd: 50,
+        cache_enabled: true
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // cost settings が KV テーブルに保存される
+      expect(mockUpsert).toHaveBeenCalledWith(
+        { key: 'cost_monthly_budget_usd', value: '50' },
+        { onConflict: 'key' }
+      );
+      expect(mockUpsert).toHaveBeenCalledWith(
+        { key: 'cost_cache_enabled', value: 'true' },
+        { onConflict: 'key' }
+      );
+    });
+
+    test('PUT /api/settings/prompts - テーブルがない場合は settings テーブルにフォールバック保存', async () => {
+      mockUpsert.mockResolvedValueOnce({
+        error: { message: "relation \"public.custom_prompts\" does not exist" }
+      });
+
+      const app = createApp();
+      const res = await request(app).put('/api/settings/prompts/tweet_generation').send({
+        system_prompt: 'test prompt',
+        user_template: 'test template'
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // JSON として settings テーブルに保存される
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          key: 'prompt_tweet_generation'
+        }),
+        { onConflict: 'key' }
+      );
+    });
+
+    test('PUT /api/settings/task-models - テーブルがない場合は settings テーブルにフォールバック保存', async () => {
+      mockUpsert
+        .mockResolvedValueOnce({
+          error: { message: "Could not find the table 'public.task_model_settings' in the schema cache" }
+        })
+        .mockResolvedValueOnce({ error: null });
+
+      const app = createApp();
+      const res = await request(app).put('/api/settings/task-models/tweet_generation').send({
+        claude_model: 'claude-sonnet-4-20250514',
+        effort: 'medium'
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      // JSON として settings テーブルに保存される
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          key: 'task_model_tweet_generation'
+        }),
+        { onConflict: 'key' }
+      );
+    });
+  });
+
   describe('PUT /api/settings/task-models/:taskType', () => {
     test('タスクモデル設定を保存できる', async () => {
       const app = createApp();
