@@ -133,6 +133,11 @@ async function postTweet(text, options = {}) {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
+    if (response.status === 403 && error.type === 'https://api.twitter.com/2/problems/oauth1-permissions') {
+      throw new Error(
+        'X APIアプリの権限が不足しています。X Developer Portalでアプリの権限を「Read and Write」に変更し、Access TokenとSecretを再生成してください。'
+      );
+    }
     throw new Error(`X API error ${response.status}: ${JSON.stringify(error)}`);
   }
 
@@ -246,6 +251,15 @@ async function verifyCredentials(accountId) {
       const data = await response.json();
       result.oauth = true;
       result.user = data.data || null;
+
+      // Check app-level write permissions via response header
+      const appPermissions = response.headers.get('x-app-permissions') || '';
+      result.writePermission = appPermissions.includes('write');
+      if (!result.writePermission) {
+        result.errors.push(
+          'アプリに書き込み権限がありません。X Developer Portalでアプリの権限を「Read and Write」に変更し、Access TokenとSecretを再生成してください。'
+        );
+      }
     } else {
       const error = await response.json().catch(() => ({}));
       result.errors.push(`OAuth認証エラー (${response.status}): ${JSON.stringify(error)}`);

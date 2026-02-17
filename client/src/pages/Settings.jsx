@@ -368,13 +368,20 @@ export default function Settings() {
                   </div>
                 </div>
                 {verifyResult?.accountId === account.id && (
-                  <div className={`ml-7 p-3 rounded-lg text-xs ${verifyResult.oauth ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                  <div className={`ml-7 p-3 rounded-lg text-xs ${verifyResult.oauth && verifyResult.writePermission !== false ? 'bg-green-50 border border-green-200' : !verifyResult.oauth ? 'bg-red-50 border border-red-200' : 'bg-yellow-50 border border-yellow-200'}`}>
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className={verifyResult.oauth ? 'text-green-600' : 'text-red-600'}>
                           {verifyResult.oauth ? 'OK' : 'NG'} OAuth認証
                         </span>
                       </div>
+                      {verifyResult.writePermission !== undefined && (
+                        <div className="flex items-center gap-2">
+                          <span className={verifyResult.writePermission ? 'text-green-600' : 'text-red-600'}>
+                            {verifyResult.writePermission ? 'OK' : 'NG'} 書き込み権限
+                          </span>
+                        </div>
+                      )}
                       <div className="flex items-center gap-2">
                         <span className={verifyResult.bearer ? 'text-green-600' : 'text-gray-400'}>
                           {verifyResult.bearer ? 'OK' : 'NG'} Bearerトークン
