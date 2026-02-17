@@ -194,6 +194,8 @@ export default function AutoPost() {
       await loadLogs();
     } catch (e) {
       alert(`実行エラー: ${e.message}`);
+      await loadLogs();
+      setActiveTab('logs');
     } finally {
       setRunning(null);
     }
@@ -456,26 +458,28 @@ export default function AutoPost() {
                 const statusInfo = STATUS_LABELS[log.status] || STATUS_LABELS.failed;
                 const config = POST_TYPE_CONFIG[log.post_type];
                 return (
-                  <div key={log.id} className="px-4 py-3 flex items-center gap-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${COLOR_MAP[config?.color || 'blue'].badge}`}>
-                      {config?.label || log.post_type}
-                    </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
-                      {statusInfo.text}
-                    </span>
-                    <div className="flex-1 text-xs text-gray-600">
-                      生成: {log.posts_generated}件
-                      {log.posts_scheduled > 0 && ` / 予約: ${log.posts_scheduled}件`}
-                      {log.posts_posted > 0 && ` / 投稿: ${log.posts_posted}件`}
+                  <div key={log.id} className="px-4 py-3 space-y-1">
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${COLOR_MAP[config?.color || 'blue'].badge}`}>
+                        {config?.label || log.post_type}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
+                        {statusInfo.text}
+                      </span>
+                      <div className="flex-1 text-xs text-gray-600">
+                        生成: {log.posts_generated}件
+                        {log.posts_scheduled > 0 && ` / 予約: ${log.posts_scheduled}件`}
+                        {log.posts_posted > 0 && ` / 投稿: ${log.posts_posted}件`}
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {formatTime(log.executed_at)}
+                      </span>
                     </div>
                     {log.error_message && (
-                      <span className="text-xs text-red-500 truncate max-w-[200px]" title={log.error_message}>
+                      <div className="bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
                         {log.error_message}
-                      </span>
+                      </div>
                     )}
-                    <span className="text-xs text-gray-400 flex-shrink-0">
-                      {formatTime(log.executed_at)}
-                    </span>
                   </div>
                 );
               })}

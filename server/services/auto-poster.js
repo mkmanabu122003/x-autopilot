@@ -410,15 +410,21 @@ async function runAutoPostManually(settingId) {
   const now = new Date();
   const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  // Always create as drafts for manual runs so user can preview before posting
-  const result = await executeAutoPost(setting, setting.posts_per_day, currentTime, { forcePreview: true });
-  return {
-    success: true,
-    postType: setting.post_type,
-    count: setting.posts_per_day,
-    drafts: result?.drafts || 0,
-    generated: result?.generated || 0,
-  };
+  try {
+    // Always create as drafts for manual runs so user can preview before posting
+    const result = await executeAutoPost(setting, setting.posts_per_day, currentTime, { forcePreview: true });
+    return {
+      success: true,
+      postType: setting.post_type,
+      count: setting.posts_per_day,
+      drafts: result?.drafts || 0,
+      generated: result?.generated || 0,
+    };
+  } catch (err) {
+    // Log the error to auto_post_logs so it's visible in the UI
+    await logAutoPostExecution(setting.account_id, setting.post_type, 0, 0, 0, 'failed', err.message);
+    throw err;
+  }
 }
 
 module.exports = {
