@@ -29,15 +29,23 @@ const TASK_LABELS = {
   performance_summary: 'パフォーマンス要約'
 };
 
-export default function ModelSelector({ taskModels, onChange }) {
-  if (!taskModels || taskModels.length === 0) return null;
+const TASK_DEFAULTS = {
+  competitor_analysis: { preferred_provider: 'claude', claude_model: 'claude-opus-4-6', gemini_model: 'gemini-2.5-pro', effort: 'high', max_tokens: 2048 },
+  tweet_generation: { preferred_provider: 'claude', claude_model: 'claude-sonnet-4-5-20250929', gemini_model: 'gemini-2.5-flash', effort: 'medium', max_tokens: 512 },
+  comment_generation: { preferred_provider: 'claude', claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', effort: 'low', max_tokens: 256 },
+  quote_rt_generation: { preferred_provider: 'claude', claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', effort: 'low', max_tokens: 256 },
+  performance_summary: { preferred_provider: 'claude', claude_model: 'claude-haiku-4-5-20251001', gemini_model: 'gemini-2.0-flash', effort: 'low', max_tokens: 1024 },
+};
 
+export default function ModelSelector({ taskModels, onChange }) {
   const handleChange = (taskType, field, value) => {
     onChange(taskType, { ...getModel(taskType), [field]: value });
   };
 
   const getModel = (taskType) => {
-    return taskModels.find(m => m.task_type === taskType) || {};
+    const fromApi = (taskModels || []).find(m => m.task_type === taskType);
+    const defaults = TASK_DEFAULTS[taskType] || {};
+    return { ...defaults, ...fromApi };
   };
 
   return (
