@@ -174,11 +174,11 @@ router.post('/suggest-keywords', async (req, res) => {
       if (providers.length === 0) {
         suggestions.debug = 'AIプロバイダーのAPIキーが設定されていません（CLAUDE_API_KEY または GEMINI_API_KEY）';
       } else {
-        // --- Cost optimization: Use DB data first, only call X API if no local data ---
+        // --- Fetch user profile and tweets for AI context ---
         let profileText = '';
         let userId = null;
 
-        // Try to get user info from competitors table first (avoids getUserByHandle API call)
+        // Try to get user_id from competitors table first (avoids getUserByHandle API call just for ID)
         const { data: existingComp } = await sb.from('competitors')
           .select('user_id, name')
           .eq('handle', account.handle.replace('@', ''))
@@ -187,16 +187,16 @@ router.post('/suggest-keywords', async (req, res) => {
 
         if (existingComp) {
           userId = existingComp.user_id;
-        } else {
-          // Only call X API if not found in DB
-          try {
-            const userData = await getUserByHandle(account.handle, accountId);
-            const profile = userData.data;
-            profileText = profile?.description || '';
-            userId = profile?.id || null;
-          } catch (err) {
-            // X API lookup failed, use display_name only
-          }
+        }
+
+        // Always try to get profile description from X API (needed for accurate suggestions)
+        try {
+          const userData = await getUserByHandle(account.handle, accountId);
+          const profile = userData.data;
+          profileText = profile?.description || '';
+          if (!userId) userId = profile?.id || null;
+        } catch (err) {
+          // X API lookup failed, continue with available data
         }
 
         // Fetch user's posted tweets from database FIRST (free, no API cost)
@@ -243,18 +243,20 @@ router.post('/suggest-keywords', async (req, res) => {
         const tweetSection = allTweets
           ? `\n最近のツイート:\n${allTweets}\n`
           : '';
+        const hasProfileOrTweets = !!(profileText || allTweets);
         const prompt = `あなたはX（Twitter）の競合分析の専門家です。以下のアカウント情報をもとに、競合アカウントを検索するためのキーワードをJSON配列で提案してください。
 
 アカウント名: ${accountName}
 ハンドル: @${account.handle}
-${profileText ? `プロフィール: ${profileText}` : ''}
-${tweetSection}
+${profileText ? `プロフィール: ${profileText}` : '（プロフィール情報なし）'}
+${tweetSection || '（ツイートデータなし）'}
 【ルール】
-- 必ず5〜8個のキーワードをJSON配列で出力すること
-- 情報が少ない場合でも、アカウント名やハンドル名から推測して提案すること
+- プロフィールやツイート内容がある場合は、その内容から主要トピックや専門分野を特定し、それに関連するキーワードを5〜8個提案すること
+- プロフィールやツイート内容がない場合（情報が不十分な場合）は、無関係なキーワードを推測で生成せず、空の配列 [] を返すこと
+- 絶対に、提供された情報と無関係な一般的トピック（宅建、FX、投資、ダイエット等）を推測で含めないこと
+- アカウント名やハンドル名だけでは、そのアカウントの分野を特定できないため、推測でキーワードを生成しないこと
 - ハッシュタグは不要。各キーワードは1〜3語の短いフレーズにすること
 - 説明文は不要。JSON配列のみ出力すること
-- ツイート内容がある場合は、その主要トピックや専門分野に関連するキーワードを優先すること
 
 出力形式（この形式以外は禁止）:
 ["キーワード1", "キーワード2", "キーワード3", "キーワード4", "キーワード5"]`;
@@ -313,8 +315,12 @@ ${tweetSection}
           }
         }
 
-        if (suggestions.profile.length === 0 && errors.length > 0) {
-          suggestions.debug = errors.join(' / ');
+        if (suggestions.profile.length === 0) {
+          if (errors.length > 0) {
+            suggestions.debug = errors.join(' / ');
+          } else if (!hasProfileOrTweets) {
+            suggestions.debug = 'プロフィールやツイートのデータが取得できなかったため、キーワードを提案できませんでした。アカウントのプロフィール設定やツイート投稿後に再度お試しください。';
+          }
         }
       }
     } else {
