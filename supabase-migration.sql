@@ -272,3 +272,20 @@ CREATE TABLE IF NOT EXISTS auto_post_logs (
 
 CREATE INDEX IF NOT EXISTS idx_auto_post_logs_executed ON auto_post_logs(executed_at);
 CREATE INDEX IF NOT EXISTS idx_auto_post_logs_account ON auto_post_logs(account_id);
+
+-- ============================================
+-- Application Logs (Error Investigation)
+-- ============================================
+
+CREATE TABLE IF NOT EXISTS app_logs (
+  id SERIAL PRIMARY KEY,
+  level TEXT NOT NULL DEFAULT 'info' CHECK(level IN ('error', 'warn', 'info')),
+  category TEXT NOT NULL DEFAULT 'system',
+  message TEXT NOT NULL,
+  details JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_app_logs_level ON app_logs(level);
+CREATE INDEX IF NOT EXISTS idx_app_logs_category ON app_logs(category);
