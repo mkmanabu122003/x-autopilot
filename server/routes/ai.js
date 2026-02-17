@@ -36,24 +36,24 @@ router.post('/generate', async (req, res) => {
     const { targetTweetText, targetHandle, quoteAngle } = req.body;
     if (postType === 'quote' && targetTweetText) {
       const angleLabels = {
-        agree: '同意+補足（共感しつつ自分の知見を追加）',
-        counter: '反論（別の視点を提示）',
-        question: '質問（議論を促す問いかけ）',
-        experience: '体験談（自身の経験を交えたコメント）',
-        data: 'データ補足（数字や事実で補強）',
+        agree: '共感',
+        counter: '反論',
+        question: '質問',
+        experience: '体験談',
+        data: 'データ補足',
       };
-      const angleDesc = angleLabels[quoteAngle] || '自由なアングル';
-      quotePrompt = `以下のツイートを引用RTするコメントを3パターン作成してください。
+      const stance = angleLabels[quoteAngle] || '特になし';
+      quotePrompt = `以下の元ツイートに対する引用リツイートを生成してください。
 
-引用元ツイート（@${targetHandle || '不明'}）:
-「${targetTweetText}」
+# 元ツイート
+投稿者：@${targetHandle || '不明'}
+内容：
+${targetTweetText}
 
-アングル: ${angleDesc}
+# 補足情報
+- 希望するスタンス：${stance}
 
-- 引用元の内容を踏まえた上で、独自の視点やコメントを加えてください
-- 280文字以内（日本語の場合は140文字を目安に）
-- ハッシュタグは2-3個
-- エンゲージメントを高める工夫を含めてください`;
+上記をもとに、2〜3案を生成してください。`;
     }
 
     const options = {
