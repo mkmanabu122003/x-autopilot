@@ -390,4 +390,74 @@ async function getOwnProfile(accountId) {
   return data.data;
 }
 
-module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials, searchRecentTweets, checkXApiBudget, apiCache, getTweetMetrics, getOwnProfile };
+/**
+ * Fetch tweet IDs that the authenticated user has replied to or quoted on X.
+ * Used to filter out competitor tweets the user has already manually engaged with.
+ * Returns an array of tweet IDs. Fails gracefully (returns []) on any error.
+ */
+async function getMyRepliedTweetIds(accountId) {
+  if (!accountId) return [];
+
+  // Check cache first
+  const cacheKey = getCacheKey('my_replied_ids', accountId);
+  const cached = getFromCache(cacheKey);
+  if (cached) {
+    console.log(`[X API Cache HIT] getMyRepliedTweetIds accountId=${accountId}`);
+    return cached;
+  }
+
+  try {
+    // Budget guard - fail gracefully if over budget
+    const budget = await checkXApiBudget();
+    if (budget.overBudget) {
+      console.log('getMyRepliedTweetIds: X API budget exceeded, skipping');
+      return [];
+    }
+
+    const profile = await getOwnProfile(accountId);
+    const userId = profile.id;
+
+    const credentials = await getAccountCredentials(accountId);
+    if (!credentials.bearer_token) return [];
+
+    const params = new URLSearchParams({
+      'tweet.fields': 'referenced_tweets',
+      'max_results': '100',
+      'exclude': 'retweets'
+    });
+    const fullUrl = `${API_BASE}/2/users/${userId}/tweets?${params}`;
+
+    const response = await fetch(fullUrl, {
+      headers: { 'Authorization': `Bearer ${credentials.bearer_token}` }
+    });
+
+    if (!response.ok) {
+      console.error(`getMyRepliedTweetIds: API error ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    const tweetCount = data.data ? data.data.length : 0;
+    await logApiUsage('x_read', 'GET /2/users/:id/tweets', tweetCount * 0.005, accountId);
+
+    const repliedIds = [];
+    for (const tweet of (data.data || [])) {
+      if (tweet.referenced_tweets) {
+        for (const ref of tweet.referenced_tweets) {
+          if (ref.type === 'replied_to' || ref.type === 'quoted') {
+            repliedIds.push(ref.id);
+          }
+        }
+      }
+    }
+
+    // Cache for 1 hour (same as user_tweets)
+    setCache(cacheKey, repliedIds, CACHE_TTL.user_tweets);
+    return repliedIds;
+  } catch (err) {
+    console.error('getMyRepliedTweetIds: error:', err.message);
+    return [];
+  }
+}
+
+module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials, searchRecentTweets, checkXApiBudget, apiCache, getTweetMetrics, getOwnProfile, getMyRepliedTweetIds };

@@ -1,4 +1,5 @@
 const { getDb } = require('../db/database');
+const { getMyRepliedTweetIds } = require('./x-api');
 
 function calculateEngagementRate(metrics) {
   const { like_count, retweet_count, reply_count, quote_count, impression_count } = metrics;
@@ -222,6 +223,18 @@ async function getQuoteSuggestions(accountId, options = {}) {
   const { data: engagedRows } = await engagedQuery;
   const engagedIds = (engagedRows || []).map(r => r.target_tweet_id).filter(Boolean);
 
+  // Also fetch tweet IDs the user has manually replied to or quoted on X
+  let manuallyRepliedIds = [];
+  try {
+    manuallyRepliedIds = await getMyRepliedTweetIds(accountId);
+  } catch (err) {
+    // Non-critical: if API fails, we still show suggestions
+    console.error('getQuoteSuggestions: failed to fetch manually replied tweet IDs:', err.message);
+  }
+
+  // Merge app-tracked and manually-engaged IDs
+  const allEngagedIds = [...new Set([...engagedIds, ...manuallyRepliedIds])];
+
   // Get competitor IDs for this account
   let competitorIds = null;
   if (accountId) {
@@ -235,14 +248,14 @@ async function getQuoteSuggestions(accountId, options = {}) {
     .select('*, competitors(handle, name)')
     .gte('engagement_rate', minEngagementRate)
     .order('engagement_rate', { ascending: false })
-    .limit(limit + engagedIds.length);
+    .limit(limit + allEngagedIds.length);
 
   if (competitorIds) query = query.in('competitor_id', competitorIds);
   const { data, error } = await query;
   if (error) throw error;
 
   const suggestions = (data || [])
-    .filter(t => !engagedIds.includes(t.tweet_id))
+    .filter(t => !allEngagedIds.includes(t.tweet_id))
     .slice(0, limit)
     .map(t => ({
       ...t,
@@ -268,6 +281,18 @@ async function getReplySuggestions(accountId, options = {}) {
   const { data: engagedRows } = await engagedQuery;
   const engagedIds = (engagedRows || []).map(r => r.target_tweet_id).filter(Boolean);
 
+  // Also fetch tweet IDs the user has manually replied to or quoted on X
+  let manuallyRepliedIds = [];
+  try {
+    manuallyRepliedIds = await getMyRepliedTweetIds(accountId);
+  } catch (err) {
+    // Non-critical: if API fails, we still show suggestions
+    console.error('getReplySuggestions: failed to fetch manually replied tweet IDs:', err.message);
+  }
+
+  // Merge app-tracked and manually-engaged IDs
+  const allEngagedIds = [...new Set([...engagedIds, ...manuallyRepliedIds])];
+
   // Get competitor IDs for this account
   let competitorIds = null;
   if (accountId) {
@@ -281,14 +306,14 @@ async function getReplySuggestions(accountId, options = {}) {
     .select('*, competitors(handle, name)')
     .gte('engagement_rate', minEngagementRate)
     .order('engagement_rate', { ascending: false })
-    .limit(limit + engagedIds.length);
+    .limit(limit + allEngagedIds.length);
 
   if (competitorIds) query = query.in('competitor_id', competitorIds);
   const { data, error } = await query;
   if (error) throw error;
 
   const suggestions = (data || [])
-    .filter(t => !engagedIds.includes(t.tweet_id))
+    .filter(t => !allEngagedIds.includes(t.tweet_id))
     .slice(0, limit)
     .map(t => ({
       ...t,
