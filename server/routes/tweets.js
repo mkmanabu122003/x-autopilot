@@ -206,12 +206,34 @@ router.get('/drafts', async (req, res) => {
     const { data, error } = await query;
     if (error) throw error;
 
+    // Fetch target tweet info for reply/quote drafts
+    const targetTweetIds = (data || [])
+      .map(p => p.target_tweet_id)
+      .filter(Boolean);
+
+    let targetTweetMap = {};
+    if (targetTweetIds.length > 0) {
+      const { data: targetTweets } = await sb.from('competitor_tweets')
+        .select('tweet_id, text, competitor_id, competitors(handle, name)')
+        .in('tweet_id', targetTweetIds);
+      if (targetTweets) {
+        for (const t of targetTweets) {
+          targetTweetMap[t.tweet_id] = {
+            text: t.text,
+            handle: t.competitors?.handle,
+            name: t.competitors?.name
+          };
+        }
+      }
+    }
+
     const posts = (data || []).map(p => ({
       ...p,
       account_name: p.x_accounts?.display_name,
       account_handle: p.x_accounts?.handle,
       account_color: p.x_accounts?.color,
-      x_accounts: undefined
+      x_accounts: undefined,
+      target_tweet: p.target_tweet_id ? (targetTweetMap[p.target_tweet_id] || null) : null
     }));
 
     res.json(posts);

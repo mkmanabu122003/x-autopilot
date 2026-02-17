@@ -242,4 +242,22 @@ describe('tweets routes', () => {
       expect(res.body.error).toBe('No fields to update');
     });
   });
+
+  describe('PUT /api/tweets/drafts/:id', () => {
+    test('text が未指定の場合は 400 エラー', async () => {
+      const app = createApp();
+      const res = await request(app).put('/api/tweets/drafts/123').send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('text is required');
+    });
+  });
+
+  describe('POST /api/tweets/drafts/:id/schedule', () => {
+    test('scheduledAt が未指定の場合は 400 エラー', async () => {
+      const app = createApp();
+      const res = await request(app).post('/api/tweets/drafts/123/schedule').send({});
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('scheduledAt is required');
+    });
+  });
 });

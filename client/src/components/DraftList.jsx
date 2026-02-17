@@ -136,6 +136,18 @@ export default function DraftList() {
                       {draft.ai_provider}
                     </span>
                   )}
+                  {draft.target_tweet && (draft.post_type === 'reply' || draft.post_type === 'quote') && (
+                    <div className="bg-gray-50 border border-gray-200 rounded px-3 py-2 mb-2">
+                      <p className="text-xs text-gray-500 mb-0.5">
+                        {draft.post_type === 'reply' ? 'リプライ先' : '引用元'}:
+                        <span className="font-medium text-gray-700 ml-1">
+                          @{draft.target_tweet.handle}
+                          {draft.target_tweet.name && ` (${draft.target_tweet.name})`}
+                        </span>
+                      </p>
+                      <p className="text-xs text-gray-600 break-words">{draft.target_tweet.text}</p>
+                    </div>
+                  )}
                   <p className="text-sm text-gray-800 break-words">{draft.text}</p>
                   <p className="text-xs text-gray-400 mt-1">
                     作成: {formatDate(draft.created_at)}
