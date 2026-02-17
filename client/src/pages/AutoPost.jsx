@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAPI } from '../hooks/useAPI';
 import { useAccount } from '../contexts/AccountContext';
 
@@ -56,11 +57,13 @@ const COLOR_MAP = {
 export default function AutoPost() {
   const { get, put, post, loading } = useAPI();
   const { currentAccount } = useAccount();
+  const navigate = useNavigate();
   const [settings, setSettings] = useState({});
   const [logs, setLogs] = useState([]);
   const [saved, setSaved] = useState(false);
   const [running, setRunning] = useState(null);
   const [activeTab, setActiveTab] = useState('settings');
+  const [draftResult, setDraftResult] = useState(null);
 
   const loadSettings = useCallback(async () => {
     if (!currentAccount) return;
@@ -146,8 +149,9 @@ export default function AutoPost() {
   const handleManualRun = async (postType) => {
     if (!currentAccount) return;
     let s = getSetting(postType);
-    if (!window.confirm(`${POST_TYPE_CONFIG[postType].label}の自動投稿を今すぐ実行しますか？`)) return;
+    if (!window.confirm(`${POST_TYPE_CONFIG[postType].label}のAI生成を実行し、下書きとして保存します。よろしいですか？`)) return;
     setRunning(postType);
+    setDraftResult(null);
     try {
       // Auto-save settings if not yet saved
       if (!s.id) {
@@ -163,7 +167,8 @@ export default function AutoPost() {
         await loadSettings();
         s = { ...s, id: result.id };
       }
-      await post(`/auto-post/run/${s.id}`);
+      const result = await post(`/auto-post/run/${s.id}`);
+      setDraftResult({ postType, drafts: result.drafts || 0 });
       await loadLogs();
     } catch (e) {
       alert(`実行エラー: ${e.message}`);
@@ -357,12 +362,27 @@ export default function AutoPost() {
                       disabled={running === postType}
                       className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
                     >
-                      {running === postType ? '実行中...' : '今すぐ実行'}
+                      {running === postType ? 'AI生成中...' : '今すぐ生成（下書き）'}
                     </button>
                     {saved === postType && (
                       <span className="text-sm text-green-600">保存しました</span>
                     )}
                   </div>
+
+                  {/* Draft creation notification */}
+                  {draftResult && draftResult.postType === postType && draftResult.drafts > 0 && (
+                    <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                      <span className="text-sm text-green-800">
+                        {draftResult.drafts}件の下書きを作成しました。投稿管理ページで確認・編集してください。
+                      </span>
+                      <button
+                        onClick={() => navigate('/post')}
+                        className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors flex-shrink-0 ml-3"
+                      >
+                        下書きを確認
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );

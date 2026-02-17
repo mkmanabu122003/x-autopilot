@@ -68,7 +68,7 @@ async function checkAndRunAutoPosts() {
   }
 }
 
-async function executeAutoPost(setting, count, currentTime) {
+async function executeAutoPost(setting, count, currentTime, { forcePreview = false } = {}) {
   const accountId = setting.account_id;
   const provider = getAIProvider(
     setting.x_accounts?.default_ai_provider || 'claude'
@@ -76,18 +76,15 @@ async function executeAutoPost(setting, count, currentTime) {
 
   switch (setting.post_type) {
     case 'new':
-      await executeNewTweets(setting, provider, count, currentTime);
-      break;
+      return await executeNewTweets(setting, provider, count, currentTime, forcePreview);
     case 'reply':
-      await executeReplies(setting, provider, count, currentTime);
-      break;
+      return await executeReplies(setting, provider, count, currentTime, forcePreview);
     case 'quote':
-      await executeQuotes(setting, provider, count, currentTime);
-      break;
+      return await executeQuotes(setting, provider, count, currentTime, forcePreview);
   }
 }
 
-async function executeNewTweets(setting, provider, count, currentTime) {
+async function executeNewTweets(setting, provider, count, currentTime, forcePreview = false) {
   const sb = getDb();
   const accountId = setting.account_id;
   const themes = (setting.themes || '').split(',').map(t => t.trim()).filter(Boolean);
@@ -95,12 +92,13 @@ async function executeNewTweets(setting, provider, count, currentTime) {
   if (themes.length === 0) {
     console.log('AutoPoster: no themes configured for new tweets, skipping');
     await logAutoPostExecution(accountId, 'new', 0, 0, 0, 'failed', 'テーマが設定されていません');
-    return;
+    return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
   let generated = 0;
   let scheduled = 0;
   let posted = 0;
+  let drafts = 0;
 
   for (let i = 0; i < count; i++) {
     try {
@@ -128,7 +126,18 @@ async function executeNewTweets(setting, provider, count, currentTime) {
       const candidate = result.candidates[0];
       generated++;
 
-      if (setting.schedule_mode === 'immediate') {
+      if (forcePreview) {
+        // Save as draft for user review
+        await sb.from('my_posts').insert({
+          account_id: accountId,
+          text: candidate.text,
+          post_type: 'new',
+          status: 'draft',
+          ai_provider: result.provider,
+          ai_model: result.model
+        });
+        drafts++;
+      } else if (setting.schedule_mode === 'immediate') {
         // Post immediately
         const xResult = await postTweet(candidate.text, { accountId });
         await sb.from('my_posts').insert({
@@ -161,11 +170,13 @@ async function executeNewTweets(setting, provider, count, currentTime) {
     }
   }
 
-  await logAutoPostExecution(accountId, 'new', generated, scheduled, posted,
-    generated === count ? 'success' : (generated > 0 ? 'partial' : 'failed'));
+  const status = generated === count ? 'success' : (generated > 0 ? 'partial' : 'failed');
+  await logAutoPostExecution(accountId, 'new', generated, scheduled, posted, status,
+    forcePreview ? `下書き${drafts}件作成` : undefined);
+  return { generated, drafts, scheduled, posted };
 }
 
-async function executeReplies(setting, provider, count, currentTime) {
+async function executeReplies(setting, provider, count, currentTime, forcePreview = false) {
   const sb = getDb();
   const accountId = setting.account_id;
 
@@ -174,14 +185,16 @@ async function executeReplies(setting, provider, count, currentTime) {
   if (!suggestions || suggestions.length === 0) {
     console.log('AutoPoster: no reply targets available');
     await logAutoPostExecution(accountId, 'reply', 0, 0, 0, 'failed', 'リプライ対象のツイートが見つかりません');
-    return;
+    return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
   let generated = 0;
   let scheduled = 0;
   let posted = 0;
+  let drafts = 0;
+  const total = Math.min(count, suggestions.length);
 
-  for (let i = 0; i < Math.min(count, suggestions.length); i++) {
+  for (let i = 0; i < total; i++) {
     try {
       const target = suggestions[i];
 
@@ -196,7 +209,18 @@ async function executeReplies(setting, provider, count, currentTime) {
       const candidate = result.candidates[0];
       generated++;
 
-      if (setting.schedule_mode === 'immediate') {
+      if (forcePreview) {
+        await sb.from('my_posts').insert({
+          account_id: accountId,
+          text: candidate.text,
+          post_type: 'reply',
+          target_tweet_id: target.tweet_id,
+          status: 'draft',
+          ai_provider: result.provider,
+          ai_model: result.model
+        });
+        drafts++;
+      } else if (setting.schedule_mode === 'immediate') {
         const xResult = await postTweet(candidate.text, {
           accountId,
           replyToId: target.tweet_id
@@ -232,11 +256,13 @@ async function executeReplies(setting, provider, count, currentTime) {
     }
   }
 
-  await logAutoPostExecution(accountId, 'reply', generated, scheduled, posted,
-    generated === Math.min(count, suggestions.length) ? 'success' : (generated > 0 ? 'partial' : 'failed'));
+  const status = generated === total ? 'success' : (generated > 0 ? 'partial' : 'failed');
+  await logAutoPostExecution(accountId, 'reply', generated, scheduled, posted, status,
+    forcePreview ? `下書き${drafts}件作成` : undefined);
+  return { generated, drafts, scheduled, posted };
 }
 
-async function executeQuotes(setting, provider, count, currentTime) {
+async function executeQuotes(setting, provider, count, currentTime, forcePreview = false) {
   const sb = getDb();
   const accountId = setting.account_id;
 
@@ -245,14 +271,16 @@ async function executeQuotes(setting, provider, count, currentTime) {
   if (!suggestions || suggestions.length === 0) {
     console.log('AutoPoster: no quote targets available');
     await logAutoPostExecution(accountId, 'quote', 0, 0, 0, 'failed', '引用RT対象のツイートが見つかりません');
-    return;
+    return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
   let generated = 0;
   let scheduled = 0;
   let posted = 0;
+  let drafts = 0;
+  const total = Math.min(count, suggestions.length);
 
-  for (let i = 0; i < Math.min(count, suggestions.length); i++) {
+  for (let i = 0; i < total; i++) {
     try {
       const target = suggestions[i];
 
@@ -267,7 +295,18 @@ async function executeQuotes(setting, provider, count, currentTime) {
       const candidate = result.candidates[0];
       generated++;
 
-      if (setting.schedule_mode === 'immediate') {
+      if (forcePreview) {
+        await sb.from('my_posts').insert({
+          account_id: accountId,
+          text: candidate.text,
+          post_type: 'quote',
+          target_tweet_id: target.tweet_id,
+          status: 'draft',
+          ai_provider: result.provider,
+          ai_model: result.model
+        });
+        drafts++;
+      } else if (setting.schedule_mode === 'immediate') {
         const xResult = await postTweet(candidate.text, {
           accountId,
           quoteTweetId: target.tweet_id
@@ -303,8 +342,10 @@ async function executeQuotes(setting, provider, count, currentTime) {
     }
   }
 
-  await logAutoPostExecution(accountId, 'quote', generated, scheduled, posted,
-    generated === Math.min(count, suggestions.length) ? 'success' : (generated > 0 ? 'partial' : 'failed'));
+  const status = generated === total ? 'success' : (generated > 0 ? 'partial' : 'failed');
+  await logAutoPostExecution(accountId, 'quote', generated, scheduled, posted, status,
+    forcePreview ? `下書き${drafts}件作成` : undefined);
+  return { generated, drafts, scheduled, posted };
 }
 
 /**
@@ -369,8 +410,15 @@ async function runAutoPostManually(settingId) {
   const now = new Date();
   const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
-  await executeAutoPost(setting, setting.posts_per_day, currentTime);
-  return { success: true, postType: setting.post_type, count: setting.posts_per_day };
+  // Always create as drafts for manual runs so user can preview before posting
+  const result = await executeAutoPost(setting, setting.posts_per_day, currentTime, { forcePreview: true });
+  return {
+    success: true,
+    postType: setting.post_type,
+    count: setting.posts_per_day,
+    drafts: result?.drafts || 0,
+    generated: result?.generated || 0,
+  };
 }
 
 module.exports = {
