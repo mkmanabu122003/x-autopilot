@@ -24,6 +24,7 @@ const DEFAULT_EFFORT_MAP = {
   tweet_generation: 'medium',
   comment_generation: 'low',
   quote_rt_generation: 'low',
+  reply_generation: 'low',
   performance_summary: 'low'
 };
 
@@ -32,6 +33,7 @@ const DEFAULT_MAX_TOKENS_MAP = {
   tweet_generation: 512,
   comment_generation: 256,
   quote_rt_generation: 2000,
+  reply_generation: 1500,
   performance_summary: 1024
 };
 
@@ -106,7 +108,7 @@ class AIProvider {
   inferTaskType(postType) {
     switch (postType) {
       case 'quote': return 'quote_rt_generation';
-      case 'reply': return 'comment_generation';
+      case 'reply': return 'reply_generation';
       case 'analysis': return 'competitor_analysis';
       case 'summary': return 'performance_summary';
       default: return 'tweet_generation';

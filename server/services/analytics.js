@@ -254,6 +254,52 @@ async function getQuoteSuggestions(accountId, options = {}) {
   return suggestions;
 }
 
+async function getReplySuggestions(accountId, options = {}) {
+  const sb = getDb();
+  const limit = options.limit || 10;
+  const minEngagementRate = options.minEngagementRate || 0;
+
+  // Get tweet_ids already replied to by this account
+  let repliedQuery = sb.from('my_posts')
+    .select('target_tweet_id')
+    .eq('post_type', 'reply')
+    .not('target_tweet_id', 'is', null);
+  if (accountId) repliedQuery = repliedQuery.eq('account_id', accountId);
+  const { data: repliedRows } = await repliedQuery;
+  const repliedIds = (repliedRows || []).map(r => r.target_tweet_id).filter(Boolean);
+
+  // Get competitor IDs for this account
+  let competitorIds = null;
+  if (accountId) {
+    const { data: comps } = await sb.from('competitors').select('id').eq('account_id', accountId);
+    competitorIds = comps ? comps.map(c => c.id) : [];
+    if (competitorIds.length === 0) return [];
+  }
+
+  // Fetch top tweets by engagement, excluding already-replied
+  let query = sb.from('competitor_tweets')
+    .select('*, competitors(handle, name)')
+    .gte('engagement_rate', minEngagementRate)
+    .order('engagement_rate', { ascending: false })
+    .limit(limit + repliedIds.length);
+
+  if (competitorIds) query = query.in('competitor_id', competitorIds);
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const suggestions = (data || [])
+    .filter(t => !repliedIds.includes(t.tweet_id))
+    .slice(0, limit)
+    .map(t => ({
+      ...t,
+      handle: t.competitors?.handle,
+      competitor_name: t.competitors?.name,
+      competitors: undefined
+    }));
+
+  return suggestions;
+}
+
 module.exports = {
   calculateEngagementRate,
   getDashboardSummary,
@@ -262,5 +308,6 @@ module.exports = {
   getWeeklyEngagement,
   getPostTypePerformance,
   getCompetitorContext,
-  getQuoteSuggestions
+  getQuoteSuggestions,
+  getReplySuggestions
 };

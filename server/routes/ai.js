@@ -31,9 +31,9 @@ router.post('/generate', async (req, res) => {
 
     const aiProvider = getAIProvider(providerName);
 
-    // Build quote-specific prompt if targetTweetText and quoteAngle are provided
+    // Build quote/reply-specific prompt if targetTweetText and angle are provided
     let quotePrompt = customPrompt || '';
-    const { targetTweetText, targetHandle, quoteAngle } = req.body;
+    const { targetTweetText, targetHandle, quoteAngle, replyAngle } = req.body;
     if (postType === 'quote' && targetTweetText) {
       const angleLabels = {
         agree: '共感',
@@ -52,6 +52,27 @@ ${targetTweetText}
 
 # 補足情報
 - 希望するスタンス：${stance}
+
+上記をもとに、2〜3案を生成してください。`;
+    } else if (postType === 'reply' && targetTweetText) {
+      const replyAngleLabels = {
+        empathy: '共感+実体験',
+        info: '補足情報',
+        question: '質問',
+        episode: 'エピソード共有',
+        support: '応援・共鳴',
+        perspective: '別視点提示',
+      };
+      const stance = replyAngleLabels[replyAngle] || '特になし';
+      quotePrompt = `以下の元ツイートに対するリプライを生成してください。
+
+# 元ツイート
+投稿者：@${targetHandle || '不明'}
+内容：
+${targetTweetText}
+
+# 補足情報
+- 希望するアングル：${stance}
 
 上記をもとに、2〜3案を生成してください。`;
     }
