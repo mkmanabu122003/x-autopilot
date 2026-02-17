@@ -1,0 +1,82 @@
+name: Code Review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run code review
+        id: review
+        run: |
+          # レビュー結果をMarkdown形式で生成
+          node scripts/code-review.js --base=origin/${{ github.base_ref }} --format=markdown > review-result.md 2>&1 || true
+
+          # GitHub Actions アノテーション出力
+          node scripts/code-review.js --base=origin/${{ github.base_ref }} --format=json --github-actions > review-json.txt 2>&1 || true
+
+          # エラーの有無を確認
+          ERRORS=$(node -e "
+            const r = require('./scripts/code-review.js');
+            const result = r.run(['node', 'script', '--base=origin/${{ github.base_ref }}', '--format=json']);
+            process.stdout.write(String(result.exitCode));
+          " 2>/dev/null || echo "0")
+          echo "has_errors=${ERRORS}" >> "$GITHUB_OUTPUT"
+
+      - name: Post review comment
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('review-result.md', 'utf-8');
+
+            // 既存のレビューコメントを探して更新
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('自動コードレビュー')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: body,
+              });
+            }
+
+      - name: Fail on errors
+        if: steps.review.outputs.has_errors == '1'
+        run: |
+          echo "::error::コードレビューでエラーが検出されました。詳細はPRコメントを確認してください。"
+          exit 1

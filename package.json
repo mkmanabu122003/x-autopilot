@@ -11,7 +11,9 @@
     "start": "node server/index.js",
     "db:migrate": "node server/db/migrate.js",
     "test": "jest --verbose",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "review": "node scripts/code-review.js",
+    "review:base": "node scripts/code-review.js --base=main"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.95.3",
