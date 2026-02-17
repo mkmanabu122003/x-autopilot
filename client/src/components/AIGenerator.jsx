@@ -3,6 +3,14 @@ import { useAPI } from '../hooks/useAPI';
 import { useAccount } from '../contexts/AccountContext';
 import ModelSelect from './ModelSelect';
 
+const TASK_TYPE_MAP = {
+  quote: 'quote_rt_generation',
+  reply: 'reply_generation',
+  analysis: 'competitor_analysis',
+  summary: 'performance_summary',
+  new: 'tweet_generation'
+};
+
 export default function AIGenerator({ postType = 'new', onSelect, onClose }) {
   const [theme, setTheme] = useState('');
   const [provider, setProvider] = useState('claude');
@@ -10,16 +18,33 @@ export default function AIGenerator({ postType = 'new', onSelect, onClose }) {
   const [includeContext, setIncludeContext] = useState(false);
   const [candidates, setCandidates] = useState([]);
   const [resultInfo, setResultInfo] = useState(null);
-  const { post, loading, error } = useAPI();
+  const { get, post, loading, error } = useAPI();
   const { currentAccount } = useAccount();
 
-  // Initialize from account defaults
+  // Initialize from task-level settings, falling back to account defaults
   useEffect(() => {
-    if (currentAccount) {
-      setProvider(currentAccount.default_ai_provider || 'claude');
-      setModel(currentAccount.default_ai_model || 'claude-sonnet-4-20250514');
-    }
-  }, [currentAccount]);
+    const taskType = TASK_TYPE_MAP[postType] || 'tweet_generation';
+    get('/settings/task-models').then(taskModels => {
+      const taskSetting = (taskModels || []).find(m => m.task_type === taskType);
+      if (taskSetting && taskSetting.preferred_provider) {
+        const prov = taskSetting.preferred_provider;
+        const mdl = prov === 'claude' ? taskSetting.claude_model : taskSetting.gemini_model;
+        setProvider(prov);
+        if (mdl) setModel(mdl);
+        return;
+      }
+      // Fall back to account defaults
+      if (currentAccount) {
+        setProvider(currentAccount.default_ai_provider || 'claude');
+        setModel(currentAccount.default_ai_model || 'claude-sonnet-4-20250514');
+      }
+    }).catch(() => {
+      if (currentAccount) {
+        setProvider(currentAccount.default_ai_provider || 'claude');
+        setModel(currentAccount.default_ai_model || 'claude-sonnet-4-20250514');
+      }
+    });
+  }, [currentAccount, postType, get]);
 
   const handleGenerate = async () => {
     if (!theme.trim()) return;

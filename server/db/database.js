@@ -4,8 +4,28 @@ function getDb() {
   return getSupabase();
 }
 
+async function ensureTaskModelColumns(sb) {
+  // Add preferred_provider column if it doesn't exist
+  // Try a simple read to test; if the column exists, this is a no-op
+  try {
+    const { data, error } = await sb.from('task_model_settings')
+      .select('preferred_provider')
+      .limit(1);
+    if (error && error.message.includes('preferred_provider')) {
+      // Column doesn't exist - need to run migration via Supabase SQL editor:
+      // ALTER TABLE task_model_settings ADD COLUMN preferred_provider TEXT DEFAULT 'claude';
+      console.warn('task_model_settings.preferred_provider column not found. Please run migration:');
+      console.warn("  ALTER TABLE task_model_settings ADD COLUMN preferred_provider TEXT DEFAULT 'claude';");
+    }
+  } catch (err) {
+    // Ignore - column check failed
+  }
+}
+
 async function initDatabase() {
   const sb = getSupabase();
+
+  await ensureTaskModelColumns(sb);
 
   const defaults = {
     competitor_fetch_interval: process.env.COMPETITOR_FETCH_INTERVAL || 'weekly',
