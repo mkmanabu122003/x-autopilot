@@ -217,6 +217,18 @@ export default function AutoPost() {
 
   return (
     <div className="space-y-6 max-w-3xl">
+      {/* Loading overlay during AI generation */}
+      {running && (
+        <div className="fixed inset-0 bg-white/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <p className="text-sm font-medium text-gray-700">
+              {POST_TYPE_CONFIG[running]?.label || ''}をAI生成中...
+            </p>
+          </div>
+        </div>
+      )}
+
       <div>
         <h2 className="text-xl font-bold text-gray-900">自動投稿</h2>
         <p className="text-sm text-gray-500 mt-1">

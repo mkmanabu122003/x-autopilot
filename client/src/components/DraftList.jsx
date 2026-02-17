@@ -184,7 +184,12 @@ export default function DraftList() {
                     disabled={posting === draft.id}
                     className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
                   >
-                    {posting === draft.id ? '投稿中...' : '今すぐ投稿'}
+                    {posting === draft.id ? (
+                      <span className="flex items-center gap-1">
+                        <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        投稿中...
+                      </span>
+                    ) : '今すぐ投稿'}
                   </button>
                   <button
                     onClick={() => setSchedulingId(draft.id)}
