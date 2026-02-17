@@ -200,7 +200,8 @@ async function getCompetitorContext(accountId) {
   if (topPosts && topPosts.length > 0) {
     context += '- 上位ポスト例:\n';
     topPosts.forEach(p => {
-      context += `  「${p.text.substring(0, 60)}...」(ER: ${p.engagement_rate.toFixed(1)}%)\n`;
+      const displayText = p.text.length > 100 ? p.text.substring(0, 100) + '...' : p.text;
+      context += `  「${displayText}」(ER: ${p.engagement_rate.toFixed(1)}%)\n`;
     });
   }
 
