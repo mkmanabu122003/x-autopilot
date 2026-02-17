@@ -128,7 +128,7 @@ async function processScheduledPosts() {
       console.error(`Failed to publish scheduled post ${post.id}:`, err.message);
       try {
         await sb.from('my_posts')
-          .update({ status: 'failed' })
+          .update({ status: 'failed', error_message: err.message })
           .eq('id', post.id);
       } catch (updateErr) {
         console.error(`Scheduler: also failed to mark post ${post.id} as failed:`, updateErr.message);

@@ -119,6 +119,41 @@ router.get('/scheduled', async (req, res) => {
   }
 });
 
+// GET /api/tweets/history - Recent posted/failed history
+router.get('/history', async (req, res) => {
+  try {
+    const sb = getDb();
+    const accountId = req.query.accountId;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+
+    let query = sb.from('my_posts')
+      .select('*, x_accounts(display_name, handle, color)')
+      .in('status', ['posted', 'failed'])
+      .not('scheduled_at', 'is', null)
+      .order('posted_at', { ascending: false, nullsFirst: false })
+      .limit(limit);
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const posts = (data || []).map(p => ({
+      ...p,
+      account_name: p.x_accounts?.display_name,
+      account_handle: p.x_accounts?.handle,
+      account_color: p.x_accounts?.color,
+      x_accounts: undefined
+    }));
+
+    res.json(posts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // POST /api/tweets/schedule - Schedule a post
 router.post('/schedule', async (req, res) => {
   try {
