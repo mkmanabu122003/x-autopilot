@@ -120,7 +120,7 @@ export default function Dashboard() {
       </div>
 
       {/* === Section 7: Cost (Small, at bottom) === */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <CostSummaryCard onDetailClick={() => setShowCostDetail(true)} />
       </div>
 
