@@ -99,6 +99,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   let scheduled = 0;
   let posted = 0;
   let drafts = 0;
+  const errors = [];
 
   for (let i = 0; i < count; i++) {
     try {
@@ -120,7 +121,10 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         competitorContext
       });
 
-      if (!result.candidates || result.candidates.length === 0) continue;
+      if (!result.candidates || result.candidates.length === 0) {
+        errors.push(`ツイート${i + 1}: AI応答に候補が含まれていません`);
+        continue;
+      }
 
       // Use the first candidate
       const candidate = result.candidates[0];
@@ -167,21 +171,30 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
       }
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post new tweet ${i + 1}:`, err.message);
+      errors.push(err.message);
     }
   }
 
   const status = generated === count ? 'success' : (generated > 0 ? 'partial' : 'failed');
-  await logAutoPostExecution(accountId, 'new', generated, scheduled, posted, status,
-    forcePreview ? `下書き${drafts}件作成` : undefined);
+  const errorMessage = errors.length > 0 ? errors.join(' | ') : (drafts > 0 ? `下書き${drafts}件作成` : null);
+  await logAutoPostExecution(accountId, 'new', generated, scheduled, posted, status, errorMessage);
   return { generated, drafts, scheduled, posted };
 }
 
 async function executeReplies(setting, provider, count, currentTime, forcePreview = false) {
   const sb = getDb();
   const accountId = setting.account_id;
+  const errors = [];
 
   // Get reply target suggestions from competitor tweets
-  const suggestions = await getReplySuggestions(accountId, { limit: count });
+  let suggestions;
+  try {
+    suggestions = await getReplySuggestions(accountId, { limit: count });
+  } catch (err) {
+    await logAutoPostExecution(accountId, 'reply', 0, 0, 0, 'failed', `リプライ候補取得エラー: ${err.message}`);
+    return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
+  }
+
   if (!suggestions || suggestions.length === 0) {
     console.log('AutoPoster: no reply targets available');
     await logAutoPostExecution(accountId, 'reply', 0, 0, 0, 'failed', 'リプライ対象のツイートが見つかりません');
@@ -204,7 +217,10 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
         customPrompt: `以下のツイートへのリプライを3パターン作成してください。\n\n元ツイート (@${target.handle}): ${target.text}`
       });
 
-      if (!result.candidates || result.candidates.length === 0) continue;
+      if (!result.candidates || result.candidates.length === 0) {
+        errors.push(`リプライ${i + 1}: AI応答に候補が含まれていません`);
+        continue;
+      }
 
       const candidate = result.candidates[0];
       generated++;
@@ -253,21 +269,30 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
       }
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post reply ${i + 1}:`, err.message);
+      errors.push(err.message);
     }
   }
 
   const status = generated === total ? 'success' : (generated > 0 ? 'partial' : 'failed');
-  await logAutoPostExecution(accountId, 'reply', generated, scheduled, posted, status,
-    forcePreview ? `下書き${drafts}件作成` : undefined);
+  const errorMessage = errors.length > 0 ? errors.join(' | ') : (drafts > 0 ? `下書き${drafts}件作成` : null);
+  await logAutoPostExecution(accountId, 'reply', generated, scheduled, posted, status, errorMessage);
   return { generated, drafts, scheduled, posted };
 }
 
 async function executeQuotes(setting, provider, count, currentTime, forcePreview = false) {
   const sb = getDb();
   const accountId = setting.account_id;
+  const errors = [];
 
   // Get quote target suggestions from competitor tweets
-  const suggestions = await getQuoteSuggestions(accountId, { limit: count });
+  let suggestions;
+  try {
+    suggestions = await getQuoteSuggestions(accountId, { limit: count });
+  } catch (err) {
+    await logAutoPostExecution(accountId, 'quote', 0, 0, 0, 'failed', `引用RT候補取得エラー: ${err.message}`);
+    return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
+  }
+
   if (!suggestions || suggestions.length === 0) {
     console.log('AutoPoster: no quote targets available');
     await logAutoPostExecution(accountId, 'quote', 0, 0, 0, 'failed', '引用RT対象のツイートが見つかりません');
@@ -290,7 +315,10 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
         customPrompt: `以下のツイートへの引用リツイートを3パターン作成してください。\n\n元ツイート (@${target.handle}): ${target.text}`
       });
 
-      if (!result.candidates || result.candidates.length === 0) continue;
+      if (!result.candidates || result.candidates.length === 0) {
+        errors.push(`引用RT${i + 1}: AI応答に候補が含まれていません`);
+        continue;
+      }
 
       const candidate = result.candidates[0];
       generated++;
@@ -339,12 +367,13 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
       }
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post quote ${i + 1}:`, err.message);
+      errors.push(err.message);
     }
   }
 
   const status = generated === total ? 'success' : (generated > 0 ? 'partial' : 'failed');
-  await logAutoPostExecution(accountId, 'quote', generated, scheduled, posted, status,
-    forcePreview ? `下書き${drafts}件作成` : undefined);
+  const errorMessage = errors.length > 0 ? errors.join(' | ') : (drafts > 0 ? `下書き${drafts}件作成` : null);
+  await logAutoPostExecution(accountId, 'quote', generated, scheduled, posted, status, errorMessage);
   return { generated, drafts, scheduled, posted };
 }
 
