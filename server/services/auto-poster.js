@@ -2,6 +2,7 @@ const { getDb } = require('../db/database');
 const { getAIProvider, AIProvider } = require('./ai-provider');
 const { postTweet } = require('./x-api');
 const { getQuoteSuggestions, getReplySuggestions, getCompetitorContext } = require('./analytics');
+const { logError, logInfo } = require('./app-logger');
 
 /**
  * Auto-poster service: generates and schedules/posts content automatically
@@ -29,6 +30,7 @@ async function checkAndRunAutoPosts() {
 
   if (error) {
     console.error('AutoPoster: failed to query settings:', error.message);
+    logError('auto_post', '自動投稿設定の取得に失敗', { error: error.message });
     return;
   }
   if (!allSettings || allSettings.length === 0) return;
@@ -63,6 +65,7 @@ async function checkAndRunAutoPosts() {
 
     } catch (err) {
       console.error(`AutoPoster: error processing setting ${setting.id}:`, err.message);
+      logError('auto_post', `自動投稿処理エラー (設定ID: ${setting.id})`, { settingId: setting.id, postType: setting.post_type, error: err.message, stack: err.stack });
       await logAutoPostExecution(setting.account_id, setting.post_type, 0, 0, 0, 'failed', err.message);
     }
   }
@@ -188,6 +191,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
       }
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post new tweet ${i + 1}:`, err.message);
+      logError('auto_post', `新規ツイート生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
       errors.push(err.message);
     }
   }
@@ -286,6 +290,7 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
       }
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post reply ${i + 1}:`, err.message);
+      logError('auto_post', `リプライ生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
       errors.push(err.message);
     }
   }
@@ -384,6 +389,7 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
       }
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post quote ${i + 1}:`, err.message);
+      logError('auto_post', `引用RT生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
       errors.push(err.message);
     }
   }

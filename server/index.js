@@ -16,6 +16,7 @@ const costsRouter = require('./routes/costs');
 const batchRouter = require('./routes/batch');
 const autoPostRouter = require('./routes/auto-post');
 const growthRouter = require('./routes/growth');
+const logsRouter = require('./routes/logs');
 
 const basicAuth = require('./middleware/basicAuth');
 
@@ -37,6 +38,7 @@ app.use('/api/costs', costsRouter);
 app.use('/api/batch', batchRouter);
 app.use('/api/auto-post', autoPostRouter);
 app.use('/api/growth', growthRouter);
+app.use('/api/logs', logsRouter);
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
