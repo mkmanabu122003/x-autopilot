@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import TweetComposer from '../components/TweetComposer';
 import ScheduleList from '../components/ScheduleList';
+import DraftList from '../components/DraftList';
 
 const tabs = [
   { id: 'new', label: '新規ツイート' },
@@ -51,6 +52,9 @@ export default function Post() {
         initialText={activeTab === initialMode ? initialText : ''}
         onPosted={handlePosted}
       />
+
+      {/* Drafts */}
+      <DraftList key={`draft-${postKey}`} />
 
       {/* Scheduled posts */}
       <ScheduleList key={`schedule-${postKey}`} />

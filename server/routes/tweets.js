@@ -188,4 +188,141 @@ router.put('/scheduled/:id', async (req, res) => {
   }
 });
 
+// GET /api/tweets/drafts - List draft posts
+router.get('/drafts', async (req, res) => {
+  try {
+    const sb = getDb();
+    const accountId = req.query.accountId;
+
+    let query = sb.from('my_posts')
+      .select('*, x_accounts(display_name, handle, color)')
+      .eq('status', 'draft')
+      .order('created_at', { ascending: false });
+
+    if (accountId) {
+      query = query.eq('account_id', accountId);
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const posts = (data || []).map(p => ({
+      ...p,
+      account_name: p.x_accounts?.display_name,
+      account_handle: p.x_accounts?.handle,
+      account_color: p.x_accounts?.color,
+      x_accounts: undefined
+    }));
+
+    res.json(posts);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/tweets/drafts/:id - Edit a draft post
+router.put('/drafts/:id', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'text is required' });
+
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts')
+      .update({ text })
+      .eq('id', req.params.id)
+      .eq('status', 'draft')
+      .select('id');
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/tweets/drafts/:id - Delete a draft post
+router.delete('/drafts/:id', async (req, res) => {
+  try {
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts')
+      .delete()
+      .eq('id', req.params.id)
+      .eq('status', 'draft')
+      .select('id');
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/tweets/drafts/:id/post - Post a draft immediately
+router.post('/drafts/:id/post', async (req, res) => {
+  try {
+    const sb = getDb();
+    const { data: draft, error: fetchError } = await sb.from('my_posts')
+      .select('*')
+      .eq('id', req.params.id)
+      .eq('status', 'draft')
+      .single();
+    if (fetchError) throw fetchError;
+    if (!draft) return res.status(404).json({ error: 'Draft not found' });
+
+    const postOptions = { accountId: draft.account_id };
+    if (draft.post_type === 'reply' && draft.target_tweet_id) {
+      postOptions.replyToId = draft.target_tweet_id;
+    } else if (draft.post_type === 'quote' && draft.target_tweet_id) {
+      postOptions.quoteTweetId = draft.target_tweet_id;
+    }
+
+    const xResult = await postTweet(draft.text, postOptions);
+
+    const { error: updateError } = await sb.from('my_posts')
+      .update({
+        tweet_id: xResult.data.id,
+        status: 'posted',
+        posted_at: new Date().toISOString()
+      })
+      .eq('id', req.params.id);
+    if (updateError) throw updateError;
+
+    res.json({ tweet_id: xResult.data.id, status: 'posted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/tweets/drafts/:id/schedule - Schedule a draft
+router.post('/drafts/:id/schedule', async (req, res) => {
+  try {
+    const { scheduledAt } = req.body;
+    if (!scheduledAt) return res.status(400).json({ error: 'scheduledAt is required' });
+
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts')
+      .update({
+        status: 'scheduled',
+        scheduled_at: scheduledAt
+      })
+      .eq('id', req.params.id)
+      .eq('status', 'draft')
+      .select('id');
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Draft not found' });
+    }
+    res.json({ success: true, status: 'scheduled', scheduled_at: scheduledAt });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

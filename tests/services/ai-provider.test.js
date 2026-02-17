@@ -1,4 +1,34 @@
-const { getAIProvider, getAvailableModels, AIProvider, ClaudeProvider } = require('../../server/services/ai-provider');
+// Mock database
+jest.mock('../../server/db/database', () => {
+  const mockChain = {
+    select: jest.fn().mockReturnThis(),
+    insert: jest.fn().mockReturnThis(),
+    update: jest.fn().mockReturnThis(),
+    delete: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    order: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    single: jest.fn().mockResolvedValue({ data: null, error: null }),
+  };
+  return {
+    getDb: jest.fn(() => ({
+      from: jest.fn(() => mockChain)
+    }))
+  };
+});
+
+// Mock x-api
+jest.mock('../../server/services/x-api', () => ({
+  logApiUsage: jest.fn().mockResolvedValue(undefined)
+}));
+
+// Mock cost-calculator
+jest.mock('../../server/services/cost-calculator', () => ({
+  logDetailedUsage: jest.fn().mockResolvedValue(undefined),
+  checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
+}));
+
+const { getAIProvider, getAvailableModels, AIProvider, ClaudeProvider, fetchWithRetry } = require('../../server/services/ai-provider');
 
 describe('ai-provider', () => {
   describe('getAvailableModels', () => {
@@ -151,6 +181,88 @@ describe('ai-provider', () => {
       const text = '{"variants":[{"label":"テスト","text":"代替テキスト","char_count":5}]}';
       const result = provider.parseCandidates(text);
       expect(result[0].text).toBe('代替テキスト');
+    });
+  });
+
+  describe('fetchWithRetry', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+      jest.restoreAllMocks();
+    });
+
+    test('成功レスポンスをそのまま返す', async () => {
+      const mockResponse = { ok: true, json: async () => ({ result: 'ok' }) };
+      jest.spyOn(global, 'fetch').mockResolvedValue(mockResponse);
+
+      const result = await fetchWithRetry('https://example.com/api', { method: 'POST' });
+      expect(result).toBe(mockResponse);
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    test('429エラーでリトライしてから成功する', async () => {
+      const mock429 = { ok: false, status: 429, json: async () => ({ error: 'rate limit' }) };
+      const mockOk = { ok: true, json: async () => ({ result: 'ok' }) };
+
+      jest.spyOn(global, 'fetch')
+        .mockResolvedValueOnce(mock429)
+        .mockResolvedValueOnce(mockOk);
+
+      const promise = fetchWithRetry('https://example.com/api', { method: 'POST' }, { initialBackoffMs: 10 });
+
+      // Advance timers to allow sleep to resolve
+      await jest.advanceTimersByTimeAsync(10);
+
+      const result = await promise;
+      expect(result).toBe(mockOk);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    test('429エラーが最大リトライ回数を超えるとレート制限エラーを投げる', async () => {
+      jest.useRealTimers();
+      const mock429 = { ok: false, status: 429, json: async () => ({ error: 'rate limit' }) };
+
+      jest.spyOn(global, 'fetch').mockResolvedValue(mock429);
+
+      await expect(
+        fetchWithRetry('https://example.com/api', { method: 'POST' }, { maxRetries: 2, initialBackoffMs: 1 })
+      ).rejects.toThrow('APIレート制限に達しました');
+      expect(global.fetch).toHaveBeenCalledTimes(3); // initial + 2 retries
+    });
+
+    test('429以外のエラーはリトライせず即座にスローする', async () => {
+      const mock500 = { ok: false, status: 500, json: async () => ({ error: 'server error' }) };
+
+      jest.spyOn(global, 'fetch').mockResolvedValue(mock500);
+
+      await expect(
+        fetchWithRetry('https://example.com/api', { method: 'POST' })
+      ).rejects.toThrow('API error 500');
+      expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    test('指数バックオフで待機時間が増加する', async () => {
+      const mock429 = { ok: false, status: 429, json: async () => ({ error: 'rate limit' }) };
+      const mockOk = { ok: true, json: async () => ({ result: 'ok' }) };
+
+      jest.spyOn(global, 'fetch')
+        .mockResolvedValueOnce(mock429)
+        .mockResolvedValueOnce(mock429)
+        .mockResolvedValueOnce(mockOk);
+
+      const promise = fetchWithRetry('https://example.com/api', { method: 'POST' }, { initialBackoffMs: 100 });
+
+      // First retry: 100ms
+      await jest.advanceTimersByTimeAsync(100);
+      // Second retry: 200ms
+      await jest.advanceTimersByTimeAsync(200);
+
+      const result = await promise;
+      expect(result).toBe(mockOk);
+      expect(global.fetch).toHaveBeenCalledTimes(3);
     });
   });
 

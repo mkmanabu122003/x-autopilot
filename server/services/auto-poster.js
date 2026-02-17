@@ -193,7 +193,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   }
 
   const status = generated === count ? 'success' : (generated > 0 ? 'partial' : 'failed');
-  const errorMessage = errors.length > 0 ? errors.join(' | ') : (drafts > 0 ? `下書き${drafts}件作成` : null);
+  const errorMessage = errors.length > 0 ? errors.join(' | ') : null;
   await logAutoPostExecution(accountId, 'new', generated, scheduled, posted, status, errorMessage);
   return { generated, drafts, scheduled, posted };
 }
@@ -291,7 +291,7 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
   }
 
   const status = generated === total ? 'success' : (generated > 0 ? 'partial' : 'failed');
-  const errorMessage = errors.length > 0 ? errors.join(' | ') : (drafts > 0 ? `下書き${drafts}件作成` : null);
+  const errorMessage = errors.length > 0 ? errors.join(' | ') : null;
   await logAutoPostExecution(accountId, 'reply', generated, scheduled, posted, status, errorMessage);
   return { generated, drafts, scheduled, posted };
 }
@@ -389,7 +389,7 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
   }
 
   const status = generated === total ? 'success' : (generated > 0 ? 'partial' : 'failed');
-  const errorMessage = errors.length > 0 ? errors.join(' | ') : (drafts > 0 ? `下書き${drafts}件作成` : null);
+  const errorMessage = errors.length > 0 ? errors.join(' | ') : null;
   await logAutoPostExecution(accountId, 'quote', generated, scheduled, posted, status, errorMessage);
   return { generated, drafts, scheduled, posted };
 }

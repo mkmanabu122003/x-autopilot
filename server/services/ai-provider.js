@@ -3,6 +3,38 @@ const { logApiUsage } = require('./x-api');
 const { logDetailedUsage, checkBudgetStatus } = require('./cost-calculator');
 const defaultPrompts = require('../config/prompts');
 
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1000;
+
+async function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, options, { maxRetries = MAX_RETRIES, initialBackoffMs = INITIAL_BACKOFF_MS } = {}) {
+  let lastError;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, options);
+    if (response.ok) return response;
+
+    const errorBody = await response.json().catch(() => ({}));
+
+    if (response.status === 429 && attempt < maxRetries) {
+      const backoff = initialBackoffMs * Math.pow(2, attempt);
+      await sleep(backoff);
+      lastError = { status: response.status, body: errorBody };
+      continue;
+    }
+
+    if (response.status === 429) {
+      throw new Error(`APIレート制限に達しました。しばらく時間をおいてから再度お試しください。(HTTP 429)`);
+    }
+
+    throw new Error(`API error ${response.status}: ${JSON.stringify(errorBody)}`);
+  }
+
+  throw new Error(`APIレート制限に達しました。しばらく時間をおいてから再度お試しください。(HTTP 429)`);
+}
+
 const CLAUDE_MODELS = [
   { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
@@ -226,16 +258,11 @@ class ClaudeProvider extends AIProvider {
       headers['anthropic-beta'] = 'prompt-caching-2024-07-31';
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers,
       body: JSON.stringify(body)
     });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`Claude API error ${response.status}: ${JSON.stringify(error)}`);
-    }
 
     const data = await response.json();
 
@@ -309,7 +336,7 @@ class GeminiProvider extends AIProvider {
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${process.env.GEMINI_API_KEY}`;
 
-    const response = await fetch(url, {
+    const response = await fetchWithRetry(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -317,11 +344,6 @@ class GeminiProvider extends AIProvider {
         generationConfig: { maxOutputTokens: maxTokens }
       })
     });
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(`Gemini API error ${response.status}: ${JSON.stringify(error)}`);
-    }
 
     const data = await response.json();
 
@@ -360,4 +382,4 @@ function getAIProvider(providerName) {
   }
 }
 
-module.exports = { getAIProvider, getAvailableModels, AIProvider, ClaudeProvider, GeminiProvider };
+module.exports = { getAIProvider, getAvailableModels, AIProvider, ClaudeProvider, GeminiProvider, fetchWithRetry };
