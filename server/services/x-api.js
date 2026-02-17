@@ -207,7 +207,7 @@ async function getUserTweets(userId, maxResults = 100, accountId, options = {}) 
   if (!credentials.bearer_token) throw new Error('Bearer token is not set for this account');
 
   const fullUrl = `${API_BASE}/2/users/${userId}/tweets?${new URLSearchParams({
-    'tweet.fields': 'public_metrics,created_at,entities,attachments',
+    'tweet.fields': 'public_metrics,created_at,entities,attachments,referenced_tweets',
     'max_results': String(Math.min(maxResults, 100))
   })}`;
 
@@ -390,4 +390,37 @@ async function getOwnProfile(accountId) {
   return data.data;
 }
 
-module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials, searchRecentTweets, checkXApiBudget, apiCache, getTweetMetrics, getOwnProfile };
+/**
+ * Get tweet IDs that the user has manually replied to or quoted on X.
+ * Fetches the user's recent tweets and checks referenced_tweets for replied_to/quoted types.
+ * Results are cached via getUserTweets (1 hour cache).
+ */
+async function getManuallyEngagedTweetIds(accountId) {
+  try {
+    const sb = getDb();
+    const { data: account } = await sb.from('x_accounts').select('handle').eq('id', accountId).single();
+    if (!account?.handle) return [];
+
+    const userProfile = await getUserByHandle(account.handle, accountId);
+    if (!userProfile?.data?.id) return [];
+
+    const tweetsData = await getUserTweets(userProfile.data.id, 100, accountId);
+    if (!tweetsData?.data) return [];
+
+    const engagedIds = [];
+    for (const tweet of tweetsData.data) {
+      if (!tweet.referenced_tweets) continue;
+      for (const ref of tweet.referenced_tweets) {
+        if (ref.type === 'replied_to' || ref.type === 'quoted') {
+          engagedIds.push(ref.id);
+        }
+      }
+    }
+    return engagedIds;
+  } catch (err) {
+    console.error('getManuallyEngagedTweetIds: failed, falling back to empty list:', err.message);
+    return [];
+  }
+}
+
+module.exports = { postTweet, getUserByHandle, getUserTweets, logApiUsage, getAccountCredentials, verifyCredentials, searchRecentTweets, checkXApiBudget, apiCache, getTweetMetrics, getOwnProfile, getManuallyEngagedTweetIds };

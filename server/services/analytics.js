@@ -1,4 +1,5 @@
 const { getDb } = require('../db/database');
+const { getManuallyEngagedTweetIds } = require('./x-api');
 
 function calculateEngagementRate(metrics) {
   const { like_count, retweet_count, reply_count, quote_count, impression_count } = metrics;
@@ -208,19 +209,38 @@ async function getCompetitorContext(accountId) {
   return context;
 }
 
-async function getQuoteSuggestions(accountId, options = {}) {
+/**
+ * Collect all tweet IDs the user has engaged with (replied to / quoted),
+ * from both the app's DB and manual X activity.
+ */
+async function getAllEngagedTweetIds(accountId) {
   const sb = getDb();
-  const limit = options.limit || 10;
-  const minEngagementRate = options.minEngagementRate || 0;
 
-  // Get tweet_ids already quoted or replied to by this account (exclude both types)
+  // 1. Get tweet_ids engaged via the app (drafts, scheduled, posted)
   let engagedQuery = sb.from('my_posts')
     .select('target_tweet_id')
     .in('post_type', ['reply', 'quote'])
     .not('target_tweet_id', 'is', null);
   if (accountId) engagedQuery = engagedQuery.eq('account_id', accountId);
   const { data: engagedRows } = await engagedQuery;
-  const engagedIds = (engagedRows || []).map(r => r.target_tweet_id).filter(Boolean);
+  const dbIds = (engagedRows || []).map(r => r.target_tweet_id).filter(Boolean);
+
+  // 2. Get tweet_ids the user manually replied to / quoted on X
+  let xIds = [];
+  if (accountId) {
+    xIds = await getManuallyEngagedTweetIds(accountId);
+  }
+
+  // Merge and deduplicate
+  return [...new Set([...dbIds, ...xIds])];
+}
+
+async function getQuoteSuggestions(accountId, options = {}) {
+  const sb = getDb();
+  const limit = options.limit || 10;
+  const minEngagementRate = options.minEngagementRate || 0;
+
+  const engagedIds = await getAllEngagedTweetIds(accountId);
 
   // Get competitor IDs for this account
   let competitorIds = null;
@@ -259,14 +279,7 @@ async function getReplySuggestions(accountId, options = {}) {
   const limit = options.limit || 10;
   const minEngagementRate = options.minEngagementRate || 0;
 
-  // Get tweet_ids already replied to or quoted by this account (exclude both types)
-  let engagedQuery = sb.from('my_posts')
-    .select('target_tweet_id')
-    .in('post_type', ['reply', 'quote'])
-    .not('target_tweet_id', 'is', null);
-  if (accountId) engagedQuery = engagedQuery.eq('account_id', accountId);
-  const { data: engagedRows } = await engagedQuery;
-  const engagedIds = (engagedRows || []).map(r => r.target_tweet_id).filter(Boolean);
+  const engagedIds = await getAllEngagedTweetIds(accountId);
 
   // Get competitor IDs for this account
   let competitorIds = null;
