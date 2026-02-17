@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAPI } from '../hooks/useAPI';
 import { useAccount } from '../contexts/AccountContext';
 
@@ -56,11 +57,13 @@ const COLOR_MAP = {
 export default function AutoPost() {
   const { get, put, post, loading } = useAPI();
   const { currentAccount } = useAccount();
+  const navigate = useNavigate();
   const [settings, setSettings] = useState({});
   const [logs, setLogs] = useState([]);
   const [saved, setSaved] = useState(false);
   const [running, setRunning] = useState(null);
   const [activeTab, setActiveTab] = useState('settings');
+  const [draftResult, setDraftResult] = useState(null);
 
   const loadSettings = useCallback(async () => {
     if (!currentAccount) return;
@@ -122,6 +125,28 @@ export default function AutoPost() {
     }));
   };
 
+  const handleToggle = async (postType) => {
+    if (!currentAccount) return;
+    const s = getSetting(postType);
+    const newEnabled = !s.enabled;
+    updateSetting(postType, 'enabled', newEnabled);
+    try {
+      await put('/auto-post/settings', {
+        accountId: currentAccount.id,
+        postType,
+        enabled: newEnabled,
+        postsPerDay: s.postsPerDay,
+        scheduleTimes: s.scheduleTimes,
+        scheduleMode: s.scheduleMode,
+        themes: s.themes,
+      });
+      await loadSettings();
+    } catch (e) {
+      // Revert on failure
+      updateSetting(postType, 'enabled', !newEnabled);
+    }
+  };
+
   const handleSave = async (postType) => {
     if (!currentAccount) return;
     const s = getSetting(postType);
@@ -144,18 +169,33 @@ export default function AutoPost() {
   };
 
   const handleManualRun = async (postType) => {
-    const s = getSetting(postType);
-    if (!s.id) {
-      alert('先に設定を保存してください');
-      return;
-    }
-    if (!window.confirm(`${POST_TYPE_CONFIG[postType].label}の自動投稿を今すぐ実行しますか？`)) return;
+    if (!currentAccount) return;
+    let s = getSetting(postType);
+    if (!window.confirm(`${POST_TYPE_CONFIG[postType].label}のAI生成を実行し、下書きとして保存します。よろしいですか？`)) return;
     setRunning(postType);
+    setDraftResult(null);
     try {
-      await post(`/auto-post/run/${s.id}`);
+      // Auto-save settings if not yet saved
+      if (!s.id) {
+        const result = await put('/auto-post/settings', {
+          accountId: currentAccount.id,
+          postType,
+          enabled: s.enabled,
+          postsPerDay: s.postsPerDay,
+          scheduleTimes: s.scheduleTimes,
+          scheduleMode: s.scheduleMode,
+          themes: s.themes,
+        });
+        await loadSettings();
+        s = { ...s, id: result.id };
+      }
+      const result = await post(`/auto-post/run/${s.id}`);
+      setDraftResult({ postType, drafts: result.drafts || 0 });
       await loadLogs();
     } catch (e) {
       alert(`実行エラー: ${e.message}`);
+      await loadLogs();
+      setActiveTab('logs');
     } finally {
       setRunning(null);
     }
@@ -249,7 +289,7 @@ export default function AutoPost() {
                     <p className="text-xs opacity-75 mt-0.5">{config.description}</p>
                   </div>
                   <button
-                    onClick={() => updateSetting(postType, 'enabled', !s.enabled)}
+                    onClick={() => handleToggle(postType)}
                     className={`relative w-12 h-6 rounded-full transition-colors ${s.enabled ? colors.toggle : 'bg-gray-300'}`}
                   >
                     <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${s.enabled ? 'translate-x-6' : ''}`} />
@@ -343,15 +383,30 @@ export default function AutoPost() {
                     </button>
                     <button
                       onClick={() => handleManualRun(postType)}
-                      disabled={running === postType || !s.id}
+                      disabled={running === postType}
                       className="px-4 py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
                     >
-                      {running === postType ? '実行中...' : '今すぐ実行'}
+                      {running === postType ? 'AI生成中...' : '今すぐ生成（下書き）'}
                     </button>
                     {saved === postType && (
                       <span className="text-sm text-green-600">保存しました</span>
                     )}
                   </div>
+
+                  {/* Draft creation notification */}
+                  {draftResult && draftResult.postType === postType && draftResult.drafts > 0 && (
+                    <div className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg p-3">
+                      <span className="text-sm text-green-800">
+                        {draftResult.drafts}件の下書きを作成しました。投稿管理ページで確認・編集してください。
+                      </span>
+                      <button
+                        onClick={() => navigate('/post')}
+                        className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors flex-shrink-0 ml-3"
+                      >
+                        下書きを確認
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -403,26 +458,28 @@ export default function AutoPost() {
                 const statusInfo = STATUS_LABELS[log.status] || STATUS_LABELS.failed;
                 const config = POST_TYPE_CONFIG[log.post_type];
                 return (
-                  <div key={log.id} className="px-4 py-3 flex items-center gap-3">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${COLOR_MAP[config?.color || 'blue'].badge}`}>
-                      {config?.label || log.post_type}
-                    </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
-                      {statusInfo.text}
-                    </span>
-                    <div className="flex-1 text-xs text-gray-600">
-                      生成: {log.posts_generated}件
-                      {log.posts_scheduled > 0 && ` / 予約: ${log.posts_scheduled}件`}
-                      {log.posts_posted > 0 && ` / 投稿: ${log.posts_posted}件`}
+                  <div key={log.id} className="px-4 py-3 space-y-1">
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${COLOR_MAP[config?.color || 'blue'].badge}`}>
+                        {config?.label || log.post_type}
+                      </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
+                        {statusInfo.text}
+                      </span>
+                      <div className="flex-1 text-xs text-gray-600">
+                        生成: {log.posts_generated}件
+                        {log.posts_scheduled > 0 && ` / 予約: ${log.posts_scheduled}件`}
+                        {log.posts_posted > 0 && ` / 投稿: ${log.posts_posted}件`}
+                      </div>
+                      <span className="text-xs text-gray-400 flex-shrink-0">
+                        {formatTime(log.executed_at)}
+                      </span>
                     </div>
                     {log.error_message && (
-                      <span className="text-xs text-red-500 truncate max-w-[200px]" title={log.error_message}>
+                      <div className="bg-red-50 border border-red-200 rounded px-3 py-2 text-xs text-red-700">
                         {log.error_message}
-                      </span>
+                      </div>
                     )}
-                    <span className="text-xs text-gray-400 flex-shrink-0">
-                      {formatTime(log.executed_at)}
-                    </span>
                   </div>
                 );
               })}
