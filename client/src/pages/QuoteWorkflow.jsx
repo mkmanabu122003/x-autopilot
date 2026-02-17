@@ -155,8 +155,22 @@ export default function QuoteWorkflow() {
     });
   };
 
+  const isLoading = fetching || generating;
+
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-2xl relative">
+      {/* Full-page loading overlay */}
+      {isLoading && (
+        <div className="fixed inset-0 bg-white/60 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <p className="text-sm font-medium text-gray-700">
+              {fetching ? '競合ツイートを取得中...' : 'AI生成中...'}
+            </p>
+          </div>
+        </div>
+      )}
+
       <h2 className="text-xl font-bold text-gray-900">引用RTワークフロー</h2>
 
       {/* Step indicator */}
@@ -246,9 +260,11 @@ export default function QuoteWorkflow() {
 
           {/* Selected tweet preview */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
-            <p className="text-xs font-medium text-gray-500 mb-1">引用元ツイート</p>
-            <p className="text-xs text-gray-500">@{selectedTweet.handle}</p>
-            <p className="text-sm text-gray-800 mt-1">{selectedTweet.text}</p>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-medium text-gray-500">引用元ツイート</span>
+              <span className="text-xs text-gray-400">@{selectedTweet.handle}</span>
+            </div>
+            <p className="text-sm text-gray-800 whitespace-pre-wrap break-words leading-relaxed">{selectedTweet.text}</p>
             <div className="flex gap-3 mt-2 text-xs text-gray-400">
               <span>ER: {formatPercent(selectedTweet.engagement_rate)}</span>
               <span>♥ {formatNumber(selectedTweet.like_count)}</span>
@@ -305,8 +321,8 @@ export default function QuoteWorkflow() {
                   <textarea
                     value={promptData.system_prompt || ''}
                     onChange={(e) => setPromptData(prev => ({ ...prev, system_prompt: e.target.value }))}
-                    rows={12}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs resize-y font-mono min-h-[120px]"
+                    rows={20}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-xs resize-y font-mono min-h-[200px] max-h-[70vh]"
                   />
                 </div>
                 <div className="flex items-center gap-2">
@@ -360,8 +376,12 @@ export default function QuoteWorkflow() {
           <h3 className="font-semibold text-gray-900">AI生成結果</h3>
 
           {/* Selected tweet reminder */}
-          <div className="bg-gray-50 rounded-lg p-2 text-xs text-gray-500">
-            引用元: @{selectedTweet.handle} 「{selectedTweet.text}」
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-medium text-gray-500">引用元ツイート</span>
+              <span className="text-xs text-gray-400">@{selectedTweet.handle}</span>
+            </div>
+            <p className="text-sm text-gray-700 whitespace-pre-wrap break-words">{selectedTweet.text}</p>
           </div>
 
           <p className="text-sm text-gray-700">候補を選択して投稿画面に進みます:</p>
