@@ -44,7 +44,18 @@ const performanceRules = [
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
         // ループの開始を検出
-        if (/\b(?:for|while)\s*\(/.test(line) || /\.(?:forEach|map|reduce|filter)\s*\(/.test(line)) {
+        const isForWhile = /\b(?:for|while)\s*\(/.test(line);
+        const isArrayMethod = /\.(?:forEach|map|reduce|filter)\s*\(/.test(line);
+        if (isForWhile || isArrayMethod) {
+          // 配列メソッドの場合、ワンライナー（括弧が同一行で閉じる）はループとみなさない
+          if (isArrayMethod && !isForWhile) {
+            const openParens = (line.match(/\(/g) || []).length;
+            const closeParens = (line.match(/\)/g) || []).length;
+            if (openParens <= closeParens) {
+              // ワンライナーコールバック → ループ扱いしない
+              continue;
+            }
+          }
           inLoop = true;
           loopDepth++;
         }
