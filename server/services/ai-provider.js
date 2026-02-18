@@ -303,9 +303,11 @@ class ClaudeProvider extends AIProvider {
 
     // Debug: log when response text is empty or candidates can't be parsed
     const candidates = this.parseCandidates(responseText);
+    let debugInfo = null;
     if (candidates.length === 0) {
       const contentTypes = Array.isArray(data.content) ? data.content.map(b => b.type).join(',') : 'no-content';
-      console.error(`AI response produced no candidates. contentTypes=${contentTypes}, responseText length=${responseText.length}, stop_reason=${data.stop_reason || 'unknown'}, responseText preview="${responseText.slice(0, 200)}"`);
+      debugInfo = `types=${contentTypes}, len=${responseText.length}, stop=${data.stop_reason || '?'}, text="${responseText.slice(0, 300)}"`;
+      console.error(`AI response produced no candidates. ${debugInfo}`);
     }
 
     return {
@@ -318,7 +320,8 @@ class ClaudeProvider extends AIProvider {
         cacheReadTokens: usage.cache_read_input_tokens || 0,
         cacheWriteTokens: usage.cache_creation_input_tokens || 0
       },
-      candidates
+      candidates,
+      debugInfo
     };
   }
 }
