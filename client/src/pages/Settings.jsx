@@ -14,6 +14,7 @@ const TABS = [
   { id: 'ai', label: 'AI共通設定' },
   { id: 'competitor', label: '競合分析' },
   { id: 'post', label: '投稿設定' },
+  { id: 'logs', label: 'ログ' },
 ];
 
 const TASK_TYPE_OPTIONS = [
@@ -36,6 +37,15 @@ export default function Settings() {
   const [accountError, setAccountError] = useState('');
   const [verifying, setVerifying] = useState(null);
   const [verifyResult, setVerifyResult] = useState(null);
+
+  // Log viewer state
+  const [logs, setLogs] = useState([]);
+  const [logTotal, setLogTotal] = useState(0);
+  const [logFilter, setLogFilter] = useState({ level: '', category: '' });
+  const [logOffset, setLogOffset] = useState(0);
+  const [logLoading, setLogLoading] = useState(false);
+  const [expandedLogId, setExpandedLogId] = useState(null);
+  const LOG_LIMIT = 50;
 
   // Cost optimization state
   const [costSettings, setCostSettings] = useState(null);
@@ -86,6 +96,28 @@ export default function Settings() {
   useEffect(() => {
     loadUsage();
   }, [loadUsage]);
+
+  // Load logs
+  const loadLogs = useCallback((offset = 0) => {
+    setLogLoading(true);
+    const params = new URLSearchParams({ limit: String(LOG_LIMIT), offset: String(offset) });
+    if (logFilter.level) params.set('level', logFilter.level);
+    if (logFilter.category) params.set('category', logFilter.category);
+    get(`/logs?${params.toString()}`)
+      .then(result => {
+        setLogs(result.logs || []);
+        setLogTotal(result.total || 0);
+        setLogOffset(offset);
+      })
+      .catch(() => {})
+      .finally(() => setLogLoading(false));
+  }, [get, logFilter]);
+
+  useEffect(() => {
+    if (activeTab === 'logs') {
+      loadLogs(0);
+    }
+  }, [activeTab, loadLogs]);
 
   // Load cost optimization settings
   const loadCostSettings = useCallback(() => {
@@ -752,6 +784,112 @@ export default function Settings() {
             {saved && <span className="text-sm text-green-600">保存しました</span>}
             {saveError && <span className="text-sm text-red-500">{saveError}</span>}
           </div>
+        </>
+      )}
+
+      {/* ===== Logs Tab ===== */}
+      {activeTab === 'logs' && (
+        <>
+          {/* Filters */}
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">アプリケーションログ</h3>
+              <button onClick={() => loadLogs(0)} disabled={logLoading}
+                className="px-3 py-1 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50">
+                {logLoading ? '読込中...' : '更新'}
+              </button>
+            </div>
+            <div className="flex gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">レベル</label>
+                <select value={logFilter.level}
+                  onChange={(e) => { setLogFilter(prev => ({ ...prev, level: e.target.value })); setLogOffset(0); }}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm">
+                  <option value="">すべて</option>
+                  <option value="error">Error</option>
+                  <option value="warn">Warn</option>
+                  <option value="info">Info</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">カテゴリ</label>
+                <select value={logFilter.category}
+                  onChange={(e) => { setLogFilter(prev => ({ ...prev, category: e.target.value })); setLogOffset(0); }}
+                  className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm">
+                  <option value="">すべて</option>
+                  <option value="scheduler">スケジューラ</option>
+                  <option value="auto_post">自動投稿</option>
+                  <option value="api">API</option>
+                  <option value="batch">バッチ</option>
+                  <option value="competitor">競合分析</option>
+                  <option value="system">システム</option>
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">全 {logTotal} 件</p>
+          </div>
+
+          {/* Log list */}
+          <div className="space-y-1">
+            {logs.length === 0 && !logLoading && (
+              <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
+                <p className="text-sm text-gray-400">ログがありません</p>
+              </div>
+            )}
+            {logs.map(log => {
+              const levelColors = {
+                error: { bg: 'bg-red-50', border: 'border-red-200', badge: 'bg-red-100 text-red-700' },
+                warn: { bg: 'bg-amber-50', border: 'border-amber-200', badge: 'bg-amber-100 text-amber-700' },
+                info: { bg: 'bg-blue-50', border: 'border-blue-200', badge: 'bg-blue-100 text-blue-700' },
+              };
+              const colors = levelColors[log.level] || levelColors.info;
+              const isExpanded = expandedLogId === log.id;
+              const time = log.created_at ? new Date(log.created_at).toLocaleString('ja-JP') : '';
+
+              return (
+                <div key={log.id}
+                  className={`${colors.bg} border ${colors.border} rounded-lg cursor-pointer transition-colors hover:opacity-90`}
+                  onClick={() => setExpandedLogId(isExpanded ? null : log.id)}>
+                  <div className="px-3 py-2 flex items-start gap-2">
+                    <span className={`px-1.5 py-0.5 text-xs font-medium rounded ${colors.badge} flex-shrink-0 mt-0.5`}>
+                      {log.level.toUpperCase()}
+                    </span>
+                    <span className="px-1.5 py-0.5 text-xs font-medium rounded bg-gray-100 text-gray-600 flex-shrink-0 mt-0.5">
+                      {log.category}
+                    </span>
+                    <span className="text-sm text-gray-800 flex-1 min-w-0 truncate">{log.message}</span>
+                    <span className="text-xs text-gray-400 flex-shrink-0 mt-0.5">{time}</span>
+                  </div>
+                  {isExpanded && log.details && (
+                    <div className="px-3 pb-3 pt-1 border-t border-white/40">
+                      <pre className="text-xs text-gray-600 bg-white/60 rounded p-2 overflow-x-auto whitespace-pre-wrap break-words font-mono">
+                        {JSON.stringify(log.details, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination */}
+          {logTotal > LOG_LIMIT && (
+            <div className="flex items-center justify-between">
+              <button onClick={() => loadLogs(Math.max(0, logOffset - LOG_LIMIT))}
+                disabled={logOffset === 0 || logLoading}
+                className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
+                前へ
+              </button>
+              <span className="text-xs text-gray-500">
+                {logOffset + 1} - {Math.min(logOffset + LOG_LIMIT, logTotal)} / {logTotal}
+              </span>
+              <button onClick={() => loadLogs(logOffset + LOG_LIMIT)}
+                disabled={logOffset + LOG_LIMIT >= logTotal || logLoading}
+                className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50">
+                次へ
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -83,6 +83,40 @@ describe('パフォーマンスレビュールール', () => {
       const findings = rule.check(lines, 'server/services/tweets.js');
       expect(findings.length).toBe(0);
     });
+
+    test('ワンライナーのreduceコールバック後のDBクエリは検出しない', () => {
+      const lines = [
+        "const { data: usageRows } = await sb.from('api_usage_log').select('cost_usd').gte('created_at', start);",
+        "const totalCost = (usageRows || []).reduce((sum, r) => sum + (r.cost_usd || 0), 0);",
+        '',
+        "const { data: budgetRow } = await sb.from('settings').select('value').eq('key', 'budget').single();",
+      ];
+      const findings = rule.check(lines, 'server/services/x-api.js');
+      expect(findings.length).toBe(0);
+    });
+
+    test('ワンライナーのmapコールバック後のDBクエリは検出しない', () => {
+      const lines = [
+        "return Object.keys(params).sort().map(k => `${k}=${params[k]}`).join(', ');",
+        '}',
+        '',
+        'async function logUsage() {',
+        "  await sb.from('log').insert({ data: 'test' });",
+        '}',
+      ];
+      const findings = rule.check(lines, 'server/services/x-api.js');
+      expect(findings.length).toBe(0);
+    });
+
+    test('複数行のforEachコールバック内のDBクエリは検出する', () => {
+      const lines = [
+        'items.forEach(async (item) => {',
+        "  await db.from('logs').insert(item);",
+        '});',
+      ];
+      const findings = rule.check(lines, 'server/services/logger.js');
+      expect(findings.length).toBe(1);
+    });
   });
 
   describe('PERF003: missing-async-error-handling', () => {

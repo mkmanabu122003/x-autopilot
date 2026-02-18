@@ -5,6 +5,7 @@ const { calculateEngagementRate } = require('./analytics');
 const { BatchManager } = require('./batch-manager');
 const { checkAndRunAutoPosts } = require('./auto-poster');
 const { refreshOwnPostMetrics, recordFollowerSnapshot } = require('./growth-analytics');
+const { logError, logWarn, logInfo } = require('./app-logger');
 
 function startScheduler() {
   // Check for scheduled posts every minute
@@ -13,6 +14,7 @@ function startScheduler() {
       await processScheduledPosts();
     } catch (err) {
       console.error('Scheduler error (processScheduledPosts):', err.message);
+      logError('scheduler', '予約投稿処理でエラー', { error: err.message, stack: err.stack });
     }
   });
 
@@ -22,6 +24,7 @@ function startScheduler() {
       await fetchCompetitorTweetsIfDue();
     } catch (err) {
       console.error('Scheduler error (fetchCompetitorTweets):', err.message);
+      logError('scheduler', '競合ツイート取得でエラー', { error: err.message, stack: err.stack });
     }
   });
 
@@ -32,6 +35,7 @@ function startScheduler() {
       await batchManager.pollBatchResults();
     } catch (err) {
       console.error('Batch polling error:', err.message);
+      logError('batch', 'バッチポーリングでエラー', { error: err.message, stack: err.stack });
     }
   });
 
@@ -41,6 +45,7 @@ function startScheduler() {
       await checkAndRunAutoPosts();
     } catch (err) {
       console.error('AutoPoster scheduler error:', err.message);
+      logError('auto_post', '自動投稿スケジューラでエラー', { error: err.message, stack: err.stack });
     }
   });
 
@@ -96,6 +101,7 @@ async function processScheduledPosts() {
 
   if (error) {
     console.error('Scheduler: failed to query scheduled posts:', error.message || error);
+    logError('scheduler', '予約投稿の取得に失敗', { error: error.message || String(error) });
     return;
   }
 
@@ -126,6 +132,7 @@ async function processScheduledPosts() {
       }
     } catch (err) {
       console.error(`Failed to publish scheduled post ${post.id}:`, err.message);
+      logError('scheduler', `予約投稿 ${post.id} の公開に失敗`, { postId: post.id, error: err.message, stack: err.stack });
       try {
         await sb.from('my_posts')
           .update({ status: 'failed', error_message: err.message })
@@ -227,10 +234,15 @@ async function fetchAllCompetitorTweets() {
       const { error } = await sb.from('competitor_tweets')
         .upsert(rows, { onConflict: 'tweet_id', ignoreDuplicates: true });
 
-      if (error) console.error(`Error inserting tweets for @${competitor.handle}:`, error.message);
-      else console.log(`Fetched ${result.data.length} tweets for @${competitor.handle}`);
+      if (error) {
+        console.error(`Error inserting tweets for @${competitor.handle}:`, error.message);
+        logError('competitor', `@${competitor.handle} のツイート保存に失敗`, { handle: competitor.handle, error: error.message });
+      } else {
+        console.log(`Fetched ${result.data.length} tweets for @${competitor.handle}`);
+      }
     } catch (err) {
       console.error(`Failed to fetch tweets for @${competitor.handle}:`, err.message);
+      logError('competitor', `@${competitor.handle} のツイート取得に失敗`, { handle: competitor.handle, error: err.message, stack: err.stack });
     }
   }
 }
