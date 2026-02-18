@@ -212,8 +212,14 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         continue;
       }
 
-      // Use the first candidate
+      // Use the first candidate, skip if text is empty
       const candidate = result.candidates[0];
+      if (!candidate.text || !candidate.text.trim()) {
+        console.error('AutoPoster: candidate text is empty, skipping');
+        logError('auto_post', `ツイート${i + 1}: 生成されたテキストが空です`, { accountId, provider: result.provider, model: result.model });
+        errors.push(`ツイート${i + 1}: 生成されたテキストが空です`);
+        continue;
+      }
       generated++;
 
       if (forcePreview) {
@@ -321,6 +327,12 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
       }
 
       const candidate = result.candidates[0];
+      if (!candidate.text || !candidate.text.trim()) {
+        console.error('AutoPoster: reply candidate text is empty, skipping');
+        logError('auto_post', `リプライ${i + 1}: 生成されたテキストが空です`, { accountId });
+        errors.push(`リプライ${i + 1}: 生成されたテキストが空です`);
+        continue;
+      }
       generated++;
 
       if (forcePreview) {
@@ -431,6 +443,12 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
       }
 
       const candidate = result.candidates[0];
+      if (!candidate.text || !candidate.text.trim()) {
+        console.error('AutoPoster: quote candidate text is empty, skipping');
+        logError('auto_post', `引用RT${i + 1}: 生成されたテキストが空です`, { accountId });
+        errors.push(`引用RT${i + 1}: 生成されたテキストが空です`);
+        continue;
+      }
       generated++;
 
       if (forcePreview) {
