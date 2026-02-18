@@ -264,6 +264,12 @@ class ClaudeProvider extends AIProvider {
 
     const data = await response.json();
 
+    // Check for API-level errors in the response body
+    if (data.type === 'error' || data.error) {
+      const errMsg = data.error?.message || JSON.stringify(data.error) || 'Unknown API error';
+      throw new Error(`Claude API error: ${errMsg}`);
+    }
+
     // Log detailed usage
     const usage = data.usage || {};
     await logDetailedUsage({
@@ -295,6 +301,13 @@ class ClaudeProvider extends AIProvider {
       responseText = data.content?.[0]?.text || '';
     }
 
+    // Debug: log when response text is empty or candidates can't be parsed
+    const candidates = this.parseCandidates(responseText);
+    if (candidates.length === 0) {
+      const contentTypes = Array.isArray(data.content) ? data.content.map(b => b.type).join(',') : 'no-content';
+      console.error(`AI response produced no candidates. contentTypes=${contentTypes}, responseText length=${responseText.length}, stop_reason=${data.stop_reason || 'unknown'}, responseText preview="${responseText.slice(0, 200)}"`);
+    }
+
     return {
       provider: 'claude',
       model,
@@ -305,7 +318,7 @@ class ClaudeProvider extends AIProvider {
         cacheReadTokens: usage.cache_read_input_tokens || 0,
         cacheWriteTokens: usage.cache_creation_input_tokens || 0
       },
-      candidates: this.parseCandidates(responseText)
+      candidates
     };
   }
 }
@@ -362,12 +375,18 @@ class GeminiProvider extends AIProvider {
     // Legacy logging
     await logApiUsage('gemini', `POST /models/${model}:generateContent`, 0, options.accountId);
 
+    const geminiText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const candidates = this.parseCandidates(geminiText);
+    if (candidates.length === 0) {
+      console.error(`Gemini response produced no candidates. responseText length=${geminiText.length}, responseText preview="${geminiText.slice(0, 200)}"`);
+    }
+
     return {
       provider: 'gemini',
       model,
       taskType,
       usage: { inputTokens, outputTokens },
-      candidates: this.parseCandidates(data.candidates[0].content.parts[0].text)
+      candidates
     };
   }
 }
