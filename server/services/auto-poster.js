@@ -208,10 +208,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
       });
 
       if (!result.candidates || result.candidates.length === 0) {
-        const detail = `provider=${result.provider}, model=${result.model}`;
-        console.error(`AutoPoster: no candidates for tweet ${i + 1}. ${detail}`);
-        logError('auto_post', `ツイート${i + 1}: AI応答に候補が含まれていません`, { accountId, provider: result.provider, model: result.model });
-        errors.push(`ツイート${i + 1}: AI応答に候補が含まれていません`);
+        const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
+        errors.push(`ツイート${i + 1}: 候補なし [${debug}]`);
         continue;
       }
 
@@ -325,7 +323,8 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
       });
 
       if (!result.candidates || result.candidates.length === 0) {
-        errors.push(`リプライ${i + 1}: AI応答に候補が含まれていません`);
+        const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
+        errors.push(`リプライ${i + 1}: 候補なし [${debug}]`);
         continue;
       }
 
@@ -441,7 +440,8 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
       });
 
       if (!result.candidates || result.candidates.length === 0) {
-        errors.push(`引用RT${i + 1}: AI応答に候補が含まれていません`);
+        const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
+        errors.push(`引用RT${i + 1}: 候補なし [${debug}]`);
         continue;
       }
 
