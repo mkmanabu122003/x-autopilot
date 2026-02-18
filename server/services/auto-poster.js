@@ -154,6 +154,18 @@ async function executeAutoPost(setting, count, currentTime, { forcePreview = fal
   }
 }
 
+/**
+ * Build a style instruction string from auto_post_settings style fields.
+ * Returns empty string if no style settings are configured.
+ */
+function buildStyleInstruction(setting) {
+  const parts = [];
+  if (setting.tone) parts.push(`トーン: ${setting.tone}`);
+  if (setting.target_audience) parts.push(`ターゲット: ${setting.target_audience}`);
+  if (setting.style_note) parts.push(`補足: ${setting.style_note}`);
+  return parts.length > 0 ? '\n' + parts.join('\n') : '';
+}
+
 async function executeNewTweets(setting, provider, count, currentTime, forcePreview = false) {
   const sb = getDb();
   const accountId = setting.account_id;
@@ -165,6 +177,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
     return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
+  const styleInstruction = buildStyleInstruction(setting);
   let generated = 0;
   let scheduled = 0;
   let posted = 0;
@@ -184,11 +197,14 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         // Non-critical
       }
 
+      const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈は含めないこと。`;
+
       const result = await provider.generateTweets(theme, {
         postType: 'new',
         accountId,
         includeCompetitorContext: true,
-        competitorContext
+        competitorContext,
+        customPrompt: userPrompt
       });
 
       if (!result.candidates || result.candidates.length === 0) {
@@ -272,6 +288,7 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
     return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
+  const styleInstruction = buildStyleInstruction(setting);
   let generated = 0;
   let scheduled = 0;
   let posted = 0;
@@ -282,10 +299,20 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
     try {
       const target = suggestions[i];
 
+      const replyPrompt = `以下の元ツイートに対するリプライを3パターン作成してください。
+
+# 元ツイート
+投稿者：@${target.handle}
+内容：
+${target.text}
+${styleInstruction}
+
+bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈は含めないこと。`;
+
       const result = await provider.generateTweets(target.text, {
         postType: 'reply',
         accountId,
-        customPrompt: `以下のツイートへのリプライを3パターン作成してください。\n\n元ツイート (@${target.handle}): ${target.text}`
+        customPrompt: replyPrompt
       });
 
       if (!result.candidates || result.candidates.length === 0) {
@@ -371,6 +398,7 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
     return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
+  const styleInstruction = buildStyleInstruction(setting);
   let generated = 0;
   let scheduled = 0;
   let posted = 0;
@@ -381,10 +409,20 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
     try {
       const target = suggestions[i];
 
+      const quotePrompt = `以下の元ツイートに対する引用リツイートを3パターン作成してください。
+
+# 元ツイート
+投稿者：@${target.handle}
+内容：
+${target.text}
+${styleInstruction}
+
+bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈は含めないこと。`;
+
       const result = await provider.generateTweets(target.text, {
         postType: 'quote',
         accountId,
-        customPrompt: `以下のツイートへの引用リツイートを3パターン作成してください。\n\n元ツイート (@${target.handle}): ${target.text}`
+        customPrompt: quotePrompt
       });
 
       if (!result.candidates || result.candidates.length === 0) {
@@ -537,6 +575,7 @@ module.exports = {
   logAutoPostExecution,
   isTimeInWindow,
   getJSTNow,
+  buildStyleInstruction,
   SCHEDULE_WINDOW_MINUTES,
   JST_OFFSET_HOURS
 };

@@ -62,7 +62,7 @@ const DEFAULT_EFFORT_MAP = {
 
 const DEFAULT_MAX_TOKENS_MAP = {
   competitor_analysis: 2048,
-  tweet_generation: 512,
+  tweet_generation: 1500,
   comment_generation: 256,
   quote_rt_generation: 2000,
   reply_generation: 1500,

@@ -50,7 +50,7 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
-const { logAutoPostExecution, isTimeInWindow, getJSTNow, checkAndRunAutoPosts, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
+const { logAutoPostExecution, isTimeInWindow, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
 const { getReplySuggestions } = require('../../server/services/analytics');
 
@@ -182,6 +182,36 @@ describe('auto-poster', () => {
 
     test('SCHEDULE_WINDOW_MINUTES のデフォルトは5', () => {
       expect(SCHEDULE_WINDOW_MINUTES).toBe(5);
+    });
+  });
+
+  describe('buildStyleInstruction', () => {
+    test('すべてのスタイル設定がある場合、トーン・ターゲット・補足を含む文字列を返す', () => {
+      const result = buildStyleInstruction({
+        tone: 'カジュアル',
+        target_audience: 'インバウンド事業者',
+        style_note: '浅草エリアの話題を多めに'
+      });
+      expect(result).toContain('トーン: カジュアル');
+      expect(result).toContain('ターゲット: インバウンド事業者');
+      expect(result).toContain('補足: 浅草エリアの話題を多めに');
+    });
+
+    test('スタイル設定が空の場合、空文字を返す', () => {
+      const result = buildStyleInstruction({ tone: '', target_audience: '', style_note: '' });
+      expect(result).toBe('');
+    });
+
+    test('一部のスタイル設定のみの場合、設定されたもののみ含む', () => {
+      const result = buildStyleInstruction({ tone: 'フレンドリー', target_audience: '', style_note: '' });
+      expect(result).toContain('トーン: フレンドリー');
+      expect(result).not.toContain('ターゲット');
+      expect(result).not.toContain('補足');
+    });
+
+    test('スタイル設定フィールドがundefinedの場合、空文字を返す', () => {
+      const result = buildStyleInstruction({});
+      expect(result).toBe('');
     });
   });
 
