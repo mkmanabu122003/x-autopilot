@@ -208,6 +208,9 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
       });
 
       if (!result.candidates || result.candidates.length === 0) {
+        const detail = `provider=${result.provider}, model=${result.model}`;
+        console.error(`AutoPoster: no candidates for tweet ${i + 1}. ${detail}`);
+        logError('auto_post', `ツイート${i + 1}: AI応答に候補が含まれていません`, { accountId, provider: result.provider, model: result.model });
         errors.push(`ツイート${i + 1}: AI応答に候補が含まれていません`);
         continue;
       }
