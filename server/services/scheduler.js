@@ -135,7 +135,7 @@ async function processScheduledPosts() {
       logError('scheduler', `予約投稿 ${post.id} の公開に失敗`, { postId: post.id, error: err.message, stack: err.stack });
       try {
         await sb.from('my_posts')
-          .update({ status: 'failed' })
+          .update({ status: 'failed', error_message: err.message })
           .eq('id', post.id);
       } catch (updateErr) {
         console.error(`Scheduler: also failed to mark post ${post.id} as failed:`, updateErr.message);

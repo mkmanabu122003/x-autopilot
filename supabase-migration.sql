@@ -274,6 +274,11 @@ CREATE INDEX IF NOT EXISTS idx_auto_post_logs_executed ON auto_post_logs(execute
 CREATE INDEX IF NOT EXISTS idx_auto_post_logs_account ON auto_post_logs(account_id);
 
 -- ============================================
+-- Scheduled Post Error Tracking
+-- ============================================
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS error_message TEXT;
+
+-- ============================================
 -- Application Logs (Error Investigation)
 -- ============================================
 

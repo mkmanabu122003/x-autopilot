@@ -156,8 +156,8 @@ describe('processScheduledPosts', () => {
 
     await processScheduledPosts();
 
-    // Verify update was called with 'failed' status
-    expect(mockDb._queryChain.update).toHaveBeenCalledWith({ status: 'failed' });
+    // Verify update was called with 'failed' status and error_message
+    expect(mockDb._queryChain.update).toHaveBeenCalledWith({ status: 'failed', error_message: 'X API error 401' });
   });
 
   test('複数の予約投稿が順番に処理される', async () => {

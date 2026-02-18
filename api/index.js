@@ -12,6 +12,7 @@ const costsRouter = require('../server/routes/costs');
 const batchRouter = require('../server/routes/batch');
 const autoPostRouter = require('../server/routes/auto-post');
 const growthRouter = require('../server/routes/growth');
+const cronRouter = require('../server/routes/cron');
 
 const basicAuth = require('../server/middleware/basicAuth');
 
@@ -32,6 +33,7 @@ app.use('/api/costs', costsRouter);
 app.use('/api/batch', batchRouter);
 app.use('/api/auto-post', autoPostRouter);
 app.use('/api/growth', growthRouter);
+app.use('/api/cron', cronRouter);
 
 // Initialize database (async)
 let dbInitialized = false;
