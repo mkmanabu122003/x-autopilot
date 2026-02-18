@@ -174,14 +174,12 @@ class AIProvider {
     for (const pattern of patterns) {
       let trimmed = pattern.trim();
       if (!trimmed) continue;
-      trimmed = trimmed.replace(/#[\w\u3000-\u9FFF]+/g, '').trim();
       trimmed = trimmed.replace(/^[「『""]|[」』""]$/g, '').trim();
       if (!trimmed) continue;
       candidates.push({ text: trimmed, label: '', hashtags: [] });
     }
-    if (candidates.length === 0) {
-      let cleaned = text.trim().replace(/#[\w\u3000-\u9FFF]+/g, '').trim();
-      candidates.push({ text: cleaned, label: '', hashtags: [] });
+    if (candidates.length === 0 && text.trim()) {
+      candidates.push({ text: text.trim(), label: '', hashtags: [] });
     }
     return candidates.slice(0, 3);
   }

@@ -165,9 +165,9 @@ describe('ai-provider', () => {
       expect(result[0].text).toBeTruthy();
     });
 
-    test('空文字列でもエラーにならない', () => {
+    test('空文字列でもエラーにならない（空配列を返す）', () => {
       const result = provider.parseCandidates('');
-      expect(result.length).toBeGreaterThanOrEqual(1);
+      expect(result).toEqual([]);
     });
 
     test('JSON周辺にテキストがあっても正しくパースする', () => {

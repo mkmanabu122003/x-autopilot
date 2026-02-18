@@ -297,3 +297,10 @@ CREATE TABLE IF NOT EXISTS app_logs (
 CREATE INDEX IF NOT EXISTS idx_app_logs_created_at ON app_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_app_logs_level ON app_logs(level);
 CREATE INDEX IF NOT EXISTS idx_app_logs_category ON app_logs(category);
+
+-- ============================================
+-- Auto Post Style Settings (tone, target, style note)
+-- ============================================
+ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS tone TEXT DEFAULT '';
+ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS target_audience TEXT DEFAULT '';
+ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS style_note TEXT DEFAULT '';
