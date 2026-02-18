@@ -206,6 +206,59 @@ describe('auto-post routes', () => {
       expect(res.body.error).toContain('Invalid time format');
     });
 
+    test('スタイル設定（tone, targetAudience, styleNote）を保存できる', async () => {
+      mockSingle.mockResolvedValueOnce({ data: { id: 2 }, error: null });
+      mockUpsert.mockImplementationOnce(() => ({ ...mockChain, select: () => ({ single: mockSingle }) }));
+
+      const app = createApp();
+      const res = await request(app).put('/api/auto-post/settings').send({
+        accountId: 1,
+        postType: 'new',
+        enabled: true,
+        postsPerDay: 3,
+        scheduleTimes: '09:00',
+        scheduleMode: 'scheduled',
+        themes: 'テスト',
+        tone: 'カジュアル',
+        targetAudience: 'インバウンド事業者',
+        styleNote: '浅草エリアの話題を多めに',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      // Verify upsert was called with style fields
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tone: 'カジュアル',
+          target_audience: 'インバウンド事業者',
+          style_note: '浅草エリアの話題を多めに',
+        }),
+        expect.anything()
+      );
+    });
+
+    test('スタイル設定が未指定の場合は空文字で保存される', async () => {
+      mockSingle.mockResolvedValueOnce({ data: { id: 3 }, error: null });
+      mockUpsert.mockImplementationOnce(() => ({ ...mockChain, select: () => ({ single: mockSingle }) }));
+
+      const app = createApp();
+      const res = await request(app).put('/api/auto-post/settings').send({
+        accountId: 1,
+        postType: 'reply',
+        enabled: false,
+      });
+      expect(res.status).toBe(200);
+
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          tone: '',
+          target_audience: '',
+          style_note: '',
+        }),
+        expect.anything()
+      );
+    });
+
     test('upsert エラー時は 500 を返す', async () => {
       mockSingle.mockResolvedValueOnce({ data: null, error: new Error('upsert failed') });
       mockUpsert.mockImplementationOnce(() => ({ ...mockChain, select: () => ({ single: mockSingle }) }));

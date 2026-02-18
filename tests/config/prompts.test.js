@@ -79,4 +79,14 @@ describe('prompts', () => {
   test('comment_generation に140文字制限が含まれる', () => {
     expect(prompts.comment_generation.system).toContain('140文字');
   });
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s にbodyフィールドの厳格ルールが含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('bodyフィールドの厳格ルール');
+      expect(system).toContain('そのままXに投稿できる完成テキストのみ');
+      expect(system).toContain('パターン名やラベル');
+    }
+  );
 });
