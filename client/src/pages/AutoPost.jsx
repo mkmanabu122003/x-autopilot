@@ -83,6 +83,9 @@ export default function AutoPost() {
           scheduleTimes: s.schedule_times,
           scheduleMode: s.schedule_mode,
           themes: s.themes,
+          tone: s.tone || '',
+          targetAudience: s.target_audience || '',
+          styleNote: s.style_note || '',
           lastRunDate: s.last_run_date,
           lastRunTimes: s.last_run_times,
         };
@@ -119,6 +122,9 @@ export default function AutoPost() {
     scheduleTimes: postType === 'new' ? '09:00' : postType === 'reply' ? '10:00,13:00' : '11:00',
     scheduleMode: postType === 'reply' ? 'immediate' : 'scheduled',
     themes: '',
+    tone: '',
+    targetAudience: '',
+    styleNote: '',
   });
 
   const getSetting = (postType) => settings[postType] || getDefault(postType);
@@ -148,6 +154,9 @@ export default function AutoPost() {
         scheduleTimes: s.scheduleTimes,
         scheduleMode: s.scheduleMode,
         themes: s.themes,
+        tone: s.tone,
+        targetAudience: s.targetAudience,
+        styleNote: s.styleNote,
       });
       await loadSettings();
     } catch (e) {
@@ -170,6 +179,9 @@ export default function AutoPost() {
         scheduleTimes: s.scheduleTimes,
         scheduleMode: s.scheduleMode,
         themes: s.themes,
+        tone: s.tone,
+        targetAudience: s.targetAudience,
+        styleNote: s.styleNote,
       });
       setSaved(postType);
       setTimeout(() => setSaved(false), 2000);
@@ -198,6 +210,9 @@ export default function AutoPost() {
           scheduleTimes: s.scheduleTimes,
           scheduleMode: s.scheduleMode,
           themes: s.themes,
+          tone: s.tone,
+          targetAudience: s.targetAudience,
+          styleNote: s.styleNote,
         });
         await loadSettings();
         s = { ...s, id: result.id };
@@ -377,6 +392,47 @@ export default function AutoPost() {
                       </p>
                     </div>
                   )}
+
+                  {/* Tone */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">トーン</label>
+                    <select
+                      value={s.tone}
+                      onChange={(e) => updateSetting(postType, 'tone', e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    >
+                      <option value="">指定なし（デフォルト）</option>
+                      <option value="カジュアル">カジュアル</option>
+                      <option value="プロフェッショナル">プロフェッショナル</option>
+                      <option value="フレンドリー">フレンドリー</option>
+                      <option value="熱量高め">熱量高め</option>
+                      <option value="淡々と">淡々と</option>
+                    </select>
+                  </div>
+
+                  {/* Target audience */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">ターゲット層</label>
+                    <input
+                      type="text"
+                      value={s.targetAudience}
+                      onChange={(e) => updateSetting(postType, 'targetAudience', e.target.value)}
+                      placeholder="例: インバウンド事業者, 通訳案内士を目指す人"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    />
+                  </div>
+
+                  {/* Style note */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">スタイル補足</label>
+                    <textarea
+                      value={s.styleNote}
+                      onChange={(e) => updateSetting(postType, 'styleNote', e.target.value)}
+                      placeholder="例: 浅草エリアの話題を多めに, 数字を積極的に使う"
+                      rows={2}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y"
+                    />
+                  </div>
 
                   {/* Last run info */}
                   {s.lastRunDate && (

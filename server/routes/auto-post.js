@@ -36,7 +36,7 @@ router.get('/settings', async (req, res) => {
 // PUT /api/auto-post/settings - Create or update auto post setting
 router.put('/settings', async (req, res) => {
   try {
-    const { accountId, postType, enabled, postsPerDay, scheduleTimes, scheduleMode, themes } = req.body;
+    const { accountId, postType, enabled, postsPerDay, scheduleTimes, scheduleMode, themes, tone, targetAudience, styleNote } = req.body;
 
     if (!accountId || !postType) {
       return res.status(400).json({ error: 'accountId and postType are required' });
@@ -64,6 +64,9 @@ router.put('/settings', async (req, res) => {
       schedule_times: scheduleTimes || '09:00',
       schedule_mode: scheduleMode || 'scheduled',
       themes: themes || '',
+      tone: tone || '',
+      target_audience: targetAudience || '',
+      style_note: styleNote || '',
       updated_at: new Date().toISOString()
     };
 
