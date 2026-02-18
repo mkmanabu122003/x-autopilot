@@ -6,8 +6,9 @@ function basicAuth(req, res, next) {
     return next();
   }
 
-  // Skip basic auth for cron endpoints (authenticated by CRON_SECRET instead)
-  if (req.path.startsWith('/api/cron/') || req.path.startsWith('/cron/')) {
+  // Skip basic auth for cron endpoints only when CRON_SECRET is configured
+  // (authentication is delegated to verifyCronSecret in the cron route)
+  if ((req.path.startsWith('/api/cron/') || req.path.startsWith('/cron/')) && process.env.CRON_SECRET) {
     return next();
   }
 

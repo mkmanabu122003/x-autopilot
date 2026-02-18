@@ -98,20 +98,33 @@ describe('basicAuth middleware', () => {
       );
     });
 
-    test('cron エンドポイント (/api/cron/) は basic auth をスキップする', () => {
+    test('CRON_SECRET 設定時、cron エンドポイント (/api/cron/) は basic auth をスキップする', () => {
+      process.env.CRON_SECRET = 'test-cron-secret';
       req.path = '/api/cron/scheduled';
-      req.headers.authorization = 'Bearer some-cron-secret';
+      req.headers.authorization = 'Bearer test-cron-secret';
       basicAuth(req, res, next);
       expect(next).toHaveBeenCalled();
       expect(res.status).not.toHaveBeenCalled();
+      delete process.env.CRON_SECRET;
     });
 
-    test('cron エンドポイント (/cron/) は basic auth をスキップする', () => {
+    test('CRON_SECRET 設定時、cron エンドポイント (/cron/) は basic auth をスキップする', () => {
+      process.env.CRON_SECRET = 'test-cron-secret';
       req.path = '/cron/auto-post';
-      req.headers.authorization = 'Bearer some-cron-secret';
+      req.headers.authorization = 'Bearer test-cron-secret';
       basicAuth(req, res, next);
       expect(next).toHaveBeenCalled();
       expect(res.status).not.toHaveBeenCalled();
+      delete process.env.CRON_SECRET;
+    });
+
+    test('CRON_SECRET 未設定時、cron エンドポイントでも basic auth を要求する', () => {
+      delete process.env.CRON_SECRET;
+      req.path = '/api/cron/scheduled';
+      req.headers.authorization = 'Bearer some-token';
+      basicAuth(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
     });
 
     test('cron 以外のエンドポイントは引き続き basic auth を要求する', () => {
