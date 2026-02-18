@@ -60,6 +60,9 @@ export default function AutoPost() {
   const navigate = useNavigate();
   const [settings, setSettings] = useState({});
   const [logs, setLogs] = useState([]);
+  const [logTotal, setLogTotal] = useState(0);
+  const [logPage, setLogPage] = useState(0);
+  const LOG_PER_PAGE = 20;
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(null);
   const [saveError, setSaveError] = useState(null);
@@ -91,13 +94,17 @@ export default function AutoPost() {
     }
   }, [get, currentAccount]);
 
-  const loadLogs = useCallback(async () => {
+  const loadLogs = useCallback(async (page = 0) => {
     if (!currentAccount) return;
     try {
-      const data = await get(`/auto-post/logs?accountId=${currentAccount.id}&limit=30`);
-      setLogs(data);
+      const offset = page * LOG_PER_PAGE;
+      const data = await get(`/auto-post/logs?accountId=${currentAccount.id}&limit=${LOG_PER_PAGE}&offset=${offset}`);
+      setLogs(data.logs || []);
+      setLogTotal(data.total || 0);
+      setLogPage(page);
     } catch (e) {
       setLogs([]);
+      setLogTotal(0);
     }
   }, [get, currentAccount]);
 
@@ -452,55 +459,84 @@ export default function AutoPost() {
         </>
       )}
 
-      {activeTab === 'logs' && (
-        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-          <div className="px-4 py-3 bg-gray-50 border-b border-gray-200">
-            <h3 className="font-semibold text-gray-900">実行ログ</h3>
-          </div>
-          {logs.length === 0 ? (
-            <div className="px-4 py-8 text-center text-gray-400 text-sm">
-              実行ログはまだありません
+      {activeTab === 'logs' && (() => {
+        const totalPages = Math.ceil(logTotal / LOG_PER_PAGE);
+        return (
+          <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+            <div className="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">実行ログ</h3>
+              {logTotal > 0 && (
+                <span className="text-xs text-gray-500">{logTotal}件</span>
+              )}
             </div>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {logs.map(log => {
-                const statusInfo = STATUS_LABELS[log.status] || STATUS_LABELS.failed;
-                const config = POST_TYPE_CONFIG[log.post_type];
-                return (
-                  <div key={log.id} className="px-4 py-3 space-y-1">
-                    <div className="flex items-center gap-3">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${COLOR_MAP[config?.color || 'blue'].badge}`}>
-                        {config?.label || log.post_type}
-                      </span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
-                        {statusInfo.text}
-                      </span>
-                      <div className="flex-1 text-xs text-gray-600">
-                        生成: {log.posts_generated}件
-                        {log.posts_scheduled > 0 && ` / 予約: ${log.posts_scheduled}件`}
-                        {log.posts_posted > 0 && ` / 投稿: ${log.posts_posted}件`}
-                        {log.posts_generated > 0 && log.posts_scheduled === 0 && log.posts_posted === 0 && ` / 下書き: ${log.posts_generated}件`}
+            {logs.length === 0 ? (
+              <div className="px-4 py-8 text-center text-gray-400 text-sm">
+                実行ログはまだありません
+              </div>
+            ) : (
+              <>
+                <div className="divide-y divide-gray-100">
+                  {logs.map(log => {
+                    const statusInfo = STATUS_LABELS[log.status] || STATUS_LABELS.failed;
+                    const config = POST_TYPE_CONFIG[log.post_type];
+                    return (
+                      <div key={log.id} className="px-4 py-3 space-y-1">
+                        <div className="flex items-center gap-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${COLOR_MAP[config?.color || 'blue'].badge}`}>
+                            {config?.label || log.post_type}
+                          </span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${statusInfo.className}`}>
+                            {statusInfo.text}
+                          </span>
+                          <div className="flex-1 text-xs text-gray-600">
+                            生成: {log.posts_generated}件
+                            {log.posts_scheduled > 0 && ` / 予約: ${log.posts_scheduled}件`}
+                            {log.posts_posted > 0 && ` / 投稿: ${log.posts_posted}件`}
+                            {log.posts_generated > 0 && log.posts_scheduled === 0 && log.posts_posted === 0 && ` / 下書き: ${log.posts_generated}件`}
+                          </div>
+                          <span className="text-xs text-gray-400 flex-shrink-0">
+                            {formatTime(log.executed_at)}
+                          </span>
+                        </div>
+                        {log.error_message && (
+                          <div className={`rounded px-3 py-2 text-xs ${
+                            log.status === 'failed'
+                              ? 'bg-red-50 border border-red-200 text-red-700'
+                              : 'bg-gray-50 border border-gray-200 text-gray-600'
+                          }`}>
+                            {log.error_message}
+                          </div>
+                        )}
                       </div>
-                      <span className="text-xs text-gray-400 flex-shrink-0">
-                        {formatTime(log.executed_at)}
-                      </span>
-                    </div>
-                    {log.error_message && (
-                      <div className={`rounded px-3 py-2 text-xs ${
-                        log.status === 'failed'
-                          ? 'bg-red-50 border border-red-200 text-red-700'
-                          : 'bg-gray-50 border border-gray-200 text-gray-600'
-                      }`}>
-                        {log.error_message}
-                      </div>
-                    )}
+                    );
+                  })}
+                </div>
+                {totalPages > 1 && (
+                  <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+                    <button
+                      onClick={() => loadLogs(logPage - 1)}
+                      disabled={logPage === 0}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      前へ
+                    </button>
+                    <span className="text-xs text-gray-500">
+                      {logPage + 1} / {totalPages} ページ
+                    </span>
+                    <button
+                      onClick={() => loadLogs(logPage + 1)}
+                      disabled={logPage >= totalPages - 1}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    >
+                      次へ
+                    </button>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }

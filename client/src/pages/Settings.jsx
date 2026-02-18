@@ -819,6 +819,7 @@ export default function Settings() {
                   <option value="">すべて</option>
                   <option value="scheduler">スケジューラ</option>
                   <option value="auto_post">自動投稿</option>
+                  <option value="cron">Cronジョブ</option>
                   <option value="api">API</option>
                   <option value="batch">バッチ</option>
                   <option value="competitor">競合分析</option>

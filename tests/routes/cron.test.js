@@ -14,12 +14,18 @@ jest.mock('express', () => {
 // Mock scheduler and auto-poster
 const mockProcessScheduledPosts = jest.fn().mockResolvedValue();
 const mockCheckAndRunAutoPosts = jest.fn().mockResolvedValue();
+const mockLogInfo = jest.fn();
+const mockLogError = jest.fn();
 
 jest.mock('../../server/services/scheduler', () => ({
   processScheduledPosts: mockProcessScheduledPosts
 }));
 jest.mock('../../server/services/auto-poster', () => ({
   checkAndRunAutoPosts: mockCheckAndRunAutoPosts
+}));
+jest.mock('../../server/services/app-logger', () => ({
+  logInfo: mockLogInfo,
+  logError: mockLogError
 }));
 
 const cronRouter = require('../../server/routes/cron');
@@ -113,6 +119,13 @@ describe('cron route handlers', () => {
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
     });
 
+    test('成功時に開始・完了ログを記録する', async () => {
+      const { req, res } = createMockReqRes();
+      await handlers['/scheduled'](req, res);
+      expect(mockLogInfo).toHaveBeenCalledWith('cron', 'Cron /scheduled 実行開始');
+      expect(mockLogInfo).toHaveBeenCalledWith('cron', 'Cron /scheduled 実行完了');
+    });
+
     test('CRON_SECRET 設定時に認証なしでは processScheduledPosts を呼ばない', async () => {
       process.env.CRON_SECRET = 'secret';
       const { req, res } = createMockReqRes();
@@ -121,12 +134,14 @@ describe('cron route handlers', () => {
       expect(res.status).toHaveBeenCalledWith(401);
     });
 
-    test('processScheduledPosts がエラーの場合は 500 を返す', async () => {
-      mockProcessScheduledPosts.mockRejectedValueOnce(new Error('DB connection failed'));
+    test('processScheduledPosts がエラーの場合は 500 を返しエラーログを記録する', async () => {
+      const err = new Error('DB connection failed');
+      mockProcessScheduledPosts.mockRejectedValueOnce(err);
       const { req, res } = createMockReqRes();
       await handlers['/scheduled'](req, res);
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith({ error: 'DB connection failed' });
+      expect(mockLogError).toHaveBeenCalledWith('cron', 'Cron /scheduled 実行エラー', { error: 'DB connection failed', stack: err.stack });
     });
   });
 
@@ -138,6 +153,13 @@ describe('cron route handlers', () => {
       expect(res.json).toHaveBeenCalledWith({ ok: true });
     });
 
+    test('成功時に開始・完了ログを記録する', async () => {
+      const { req, res } = createMockReqRes();
+      await handlers['/auto-post'](req, res);
+      expect(mockLogInfo).toHaveBeenCalledWith('cron', 'Cron /auto-post 実行開始');
+      expect(mockLogInfo).toHaveBeenCalledWith('cron', 'Cron /auto-post 実行完了');
+    });
+
     test('CRON_SECRET 設定時に認証なしでは checkAndRunAutoPosts を呼ばない', async () => {
       process.env.CRON_SECRET = 'secret';
       const { req, res } = createMockReqRes();
@@ -146,12 +168,14 @@ describe('cron route handlers', () => {
       expect(res.status).toHaveBeenCalledWith(401);
     });
 
-    test('checkAndRunAutoPosts がエラーの場合は 500 を返す', async () => {
-      mockCheckAndRunAutoPosts.mockRejectedValueOnce(new Error('API rate limit'));
+    test('checkAndRunAutoPosts がエラーの場合は 500 を返しエラーログを記録する', async () => {
+      const err = new Error('API rate limit');
+      mockCheckAndRunAutoPosts.mockRejectedValueOnce(err);
       const { req, res } = createMockReqRes();
       await handlers['/auto-post'](req, res);
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith({ error: 'API rate limit' });
+      expect(mockLogError).toHaveBeenCalledWith('cron', 'Cron /auto-post 実行エラー', { error: 'API rate limit', stack: err.stack });
     });
   });
 });
