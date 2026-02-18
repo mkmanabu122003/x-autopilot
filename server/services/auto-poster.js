@@ -24,6 +24,26 @@ const { logError, logInfo } = require('./app-logger');
 // SCHEDULE_WINDOW_MINUTES after the scheduled time.
 const SCHEDULE_WINDOW_MINUTES = 5;
 
+// JST (Asia/Tokyo) offset from UTC in hours.
+// schedule_times are stored in JST by the user, so all time comparisons
+// and schedule calculations must use JST.
+const JST_OFFSET_HOURS = 9;
+
+/**
+ * Get current time and date in JST (Asia/Tokyo, UTC+9).
+ * Works regardless of the server's system timezone.
+ */
+function getJSTNow() {
+  const now = new Date();
+  const jstMs = now.getTime() + JST_OFFSET_HOURS * 60 * 60 * 1000;
+  const jst = new Date(jstMs);
+
+  const currentTime = `${String(jst.getUTCHours()).padStart(2, '0')}:${String(jst.getUTCMinutes()).padStart(2, '0')}`;
+  const today = jst.toISOString().slice(0, 10);
+
+  return { currentTime, today, now };
+}
+
 /**
  * Check if the current time falls within a tolerance window after the
  * scheduled time.  e.g. scheduled "20:50" with window 5 matches
@@ -47,9 +67,7 @@ function isTimeInWindow(scheduledTime, currentTime, windowMinutes = SCHEDULE_WIN
 
 async function checkAndRunAutoPosts() {
   const sb = getDb();
-  const now = new Date();
-  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const today = now.toISOString().slice(0, 10);
+  const { currentTime, today } = getJSTNow();
 
   // Fetch all enabled auto_post_settings
   const { data: allSettings, error } = await sb.from('auto_post_settings')
@@ -434,13 +452,14 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
 
 /**
  * Calculate a scheduled time for a post, spread evenly through remaining day hours.
- * If run at 09:00 with 3 posts, schedules at roughly 10:00, 14:00, 18:00.
+ * If run at 09:00 JST with 3 posts, schedules at roughly 10:00, 14:00, 18:00 JST.
+ * Returns a Date object in UTC (for DB storage as ISO string).
  */
 function calculateScheduleTime(index, totalCount, currentTime) {
-  const now = new Date();
-  const [currentHour, currentMin] = currentTime.split(':').map(Number);
+  const { today, now } = getJSTNow();
+  const [currentHour] = currentTime.split(':').map(Number);
 
-  // Spread posts from 1 hour after current time until 21:00
+  // Spread posts from 1 hour after current time until 21:00 JST
   const startHour = currentHour + 1;
   const endHour = 21;
   const availableHours = Math.max(endHour - startHour, 1);
@@ -449,8 +468,10 @@ function calculateScheduleTime(index, totalCount, currentTime) {
   const targetHour = Math.min(startHour + Math.round(interval * index), endHour);
   const targetMin = Math.floor(Math.random() * 15); // Add 0-14 min randomness
 
-  const scheduled = new Date(now);
-  scheduled.setHours(targetHour, targetMin, 0, 0);
+  // Build the target time in JST, then convert to UTC for storage.
+  // Date.UTC handles hour underflow correctly (e.g. hour -1 rolls back a day).
+  const [y, m, d] = today.split('-').map(Number);
+  const scheduled = new Date(Date.UTC(y, m - 1, d, targetHour - JST_OFFSET_HOURS, targetMin, 0, 0));
 
   // If the calculated time is in the past (edge case), set it to now + 5 min
   if (scheduled <= now) {
@@ -491,8 +512,7 @@ async function runAutoPostManually(settingId) {
     throw new Error('設定が見つかりません');
   }
 
-  const now = new Date();
-  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const { currentTime } = getJSTNow();
 
   try {
     // Always create as drafts for manual runs so user can preview before posting
@@ -516,5 +536,7 @@ module.exports = {
   runAutoPostManually,
   logAutoPostExecution,
   isTimeInWindow,
-  SCHEDULE_WINDOW_MINUTES
+  getJSTNow,
+  SCHEDULE_WINDOW_MINUTES,
+  JST_OFFSET_HOURS
 };
