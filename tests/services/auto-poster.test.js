@@ -50,8 +50,9 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
-const { logAutoPostExecution, isTimeInWindow, getJSTNow, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
+const { logAutoPostExecution, isTimeInWindow, getJSTNow, checkAndRunAutoPosts, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
+const { getReplySuggestions } = require('../../server/services/analytics');
 
 describe('auto-poster', () => {
   describe('getJSTNow', () => {
@@ -90,6 +91,42 @@ describe('auto-poster', () => {
 
     test('JST_OFFSET_HOURS は9（UTC+9）', () => {
       expect(JST_OFFSET_HOURS).toBe(9);
+    });
+
+    test('UTC 11:50 のとき JST 20:50 を返す', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+      const { currentTime, today } = getJSTNow();
+      expect(currentTime).toBe('20:50');
+      expect(today).toBe('2026-02-18');
+      jest.useRealTimers();
+    });
+
+    test('UTC 20:50 のとき JST 05:50（翌日）を返す', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T20:50:00Z'));
+      const { currentTime, today } = getJSTNow();
+      expect(currentTime).toBe('05:50');
+      expect(today).toBe('2026-02-19');
+      jest.useRealTimers();
+    });
+
+    test('UTC 15:00 のとき JST 00:00（翌日）を返す', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T15:00:00Z'));
+      const { currentTime, today } = getJSTNow();
+      expect(currentTime).toBe('00:00');
+      expect(today).toBe('2026-02-19');
+      jest.useRealTimers();
+    });
+
+    test('UTC 14:59 のとき JST 23:59（同日）を返す', () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T14:59:00Z'));
+      const { currentTime, today } = getJSTNow();
+      expect(currentTime).toBe('23:59');
+      expect(today).toBe('2026-02-18');
+      jest.useRealTimers();
     });
   });
 
@@ -145,6 +182,257 @@ describe('auto-poster', () => {
 
     test('SCHEDULE_WINDOW_MINUTES のデフォルトは5', () => {
       expect(SCHEDULE_WINDOW_MINUTES).toBe(5);
+    });
+  });
+
+  describe('checkAndRunAutoPosts（結合テスト）', () => {
+    // Helper: create a mock DB that returns the given settings on select, tracks update/insert calls
+    function setupMockDb(settings) {
+      const insertCalls = [];
+      const updateCalls = [];
+      const mockFrom = jest.fn((table) => {
+        if (table === 'auto_post_settings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: settings, error: null })
+            }),
+            update: jest.fn((data) => {
+              updateCalls.push({ table, data });
+              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            })
+          };
+        }
+        // my_posts, auto_post_logs etc.
+        return {
+          insert: jest.fn((data) => {
+            insertCalls.push({ table, data });
+            return Promise.resolve({ error: null });
+          })
+        };
+      });
+      getDb.mockReturnValue({ from: mockFrom });
+      return { insertCalls, updateCalls };
+    }
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('UTC 11:50 (= JST 20:50) で schedule_times "20:50" のリプライ設定が実行される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      getReplySuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-1', text: 'ターゲットツイート', handle: 'rival' }
+      ]);
+
+      const { updateCalls, insertCalls } = setupMockDb([{
+        id: 'setting-reply',
+        account_id: 'account-1',
+        post_type: 'reply',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'immediate',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      // last_run_times に "20:50" が記録される
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].data).toEqual({
+        last_run_date: '2026-02-18',
+        last_run_times: '20:50'
+      });
+    });
+
+    test('UTC 11:50 (= JST 20:50) で schedule_times "20:50" の新規ツイート設定が実行される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      const { updateCalls, insertCalls } = setupMockDb([{
+        id: 'setting-new',
+        account_id: 'account-1',
+        post_type: 'new',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'immediate',
+        themes: 'AI,プログラミング',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].data).toEqual({
+        last_run_date: '2026-02-18',
+        last_run_times: '20:50'
+      });
+      // my_posts への insert が呼ばれている（投稿 + ログ）
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('UTC 11:50 (= JST 20:50) で schedule_times "20:50" の引用RT設定が実行される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      const { getQuoteSuggestions } = require('../../server/services/analytics');
+      getQuoteSuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-q1', text: '引用対象ツイート', handle: 'competitor' }
+      ]);
+
+      const { updateCalls } = setupMockDb([{
+        id: 'setting-quote',
+        account_id: 'account-1',
+        post_type: 'quote',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'immediate',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].data).toEqual({
+        last_run_date: '2026-02-18',
+        last_run_times: '20:50'
+      });
+    });
+
+    test('UTC 11:52 (= JST 20:52) でも schedule_times "20:50" がウィンドウ内で実行される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:52:00Z'));
+
+      getReplySuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-2', text: 'ターゲット', handle: 'rival' }
+      ]);
+
+      const { updateCalls } = setupMockDb([{
+        id: 'setting-reply',
+        account_id: 'account-1',
+        post_type: 'reply',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'immediate',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      // ウィンドウ内（+2分）なので実行される
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].data.last_run_times).toBe('20:50');
+    });
+
+    test('UTC 12:00 (= JST 21:00) では schedule_times "20:50" はウィンドウ外で実行されない', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T12:00:00Z'));
+
+      const { updateCalls } = setupMockDb([{
+        id: 'setting-reply',
+        account_id: 'account-1',
+        post_type: 'reply',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'immediate',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      // 10分ずれているので実行されない
+      expect(updateCalls).toHaveLength(0);
+    });
+
+    test('UTC 20:50 (= JST 05:50翌日) では "20:50" はマッチしない（旧バグのシナリオ）', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T20:50:00Z'));
+
+      const { updateCalls } = setupMockDb([{
+        id: 'setting-reply',
+        account_id: 'account-1',
+        post_type: 'reply',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'immediate',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      // JST では 05:50 なので 20:50 とはマッチしない
+      expect(updateCalls).toHaveLength(0);
+    });
+
+    test('同日の同時刻が既に実行済みの場合は重複実行しない', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:52:00Z'));
+
+      const { updateCalls } = setupMockDb([{
+        id: 'setting-reply',
+        account_id: 'account-1',
+        post_type: 'reply',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'immediate',
+        last_run_date: '2026-02-18',
+        last_run_times: '20:50',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      // 既に実行済みなのでスキップ
+      expect(updateCalls).toHaveLength(0);
+    });
+
+    test('複数の schedule_times で該当するスロットだけ実行される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T04:00:00Z')); // JST 13:00
+
+      getReplySuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-3', text: 'ターゲット', handle: 'rival' }
+      ]);
+
+      const { updateCalls } = setupMockDb([{
+        id: 'setting-multi',
+        account_id: 'account-1',
+        post_type: 'reply',
+        enabled: true,
+        schedule_times: '09:00,13:00,20:50',
+        posts_per_day: 3,
+        schedule_mode: 'immediate',
+        last_run_date: '2026-02-18',
+        last_run_times: '09:00',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      // 13:00 が JST 現在時刻とマッチし、09:00 は既実行済み、20:50 はまだ
+      expect(updateCalls).toHaveLength(1);
+      expect(updateCalls[0].data.last_run_times).toBe('09:00,13:00');
     });
   });
 
