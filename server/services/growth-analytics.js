@@ -242,7 +242,33 @@ async function getOwnPostsPerformance(accountId, limit = 20) {
   if (accountId) query = query.eq('account_id', accountId);
 
   const { data } = await query;
-  return data || [];
+  const posts = data || [];
+
+  // Fetch original tweet info for reply/quote posts
+  const targetTweetIds = posts
+    .map(p => p.target_tweet_id)
+    .filter(Boolean);
+
+  let targetTweetMap = {};
+  if (targetTweetIds.length > 0) {
+    const { data: targetTweets } = await sb.from('competitor_tweets')
+      .select('tweet_id, text, competitor_id, competitors(handle, name)')
+      .in('tweet_id', targetTweetIds);
+    if (targetTweets) {
+      for (const t of targetTweets) {
+        targetTweetMap[t.tweet_id] = {
+          text: t.text,
+          handle: t.competitors?.handle,
+          name: t.competitors?.name
+        };
+      }
+    }
+  }
+
+  return posts.map(p => ({
+    ...p,
+    target_tweet: p.target_tweet_id ? (targetTweetMap[p.target_tweet_id] || null) : null
+  }));
 }
 
 /**

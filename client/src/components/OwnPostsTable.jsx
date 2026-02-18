@@ -70,6 +70,39 @@ export default function OwnPostsTable() {
                   </span>
                 </div>
                 <p className="text-sm text-gray-800 break-words line-clamp-2">{p.text}</p>
+                {p.target_tweet_id && (p.post_type === 'reply' || p.post_type === 'quote') && (
+                  <div className="mt-1.5 pl-2 border-l-2 border-gray-200">
+                    {p.target_tweet ? (
+                      <a
+                        href={`https://x.com/${p.target_tweet.handle}/status/${p.target_tweet_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block hover:bg-gray-50 rounded transition-colors"
+                      >
+                        <span className="text-xs text-gray-500">
+                          {p.post_type === 'quote' ? '引用元' : '返信先'}:
+                          {' '}
+                          <span className="font-medium text-gray-700">
+                            {p.target_tweet.name || `@${p.target_tweet.handle}`}
+                          </span>
+                          {p.target_tweet.name && (
+                            <span className="text-gray-400 ml-1">@{p.target_tweet.handle}</span>
+                          )}
+                        </span>
+                        <p className="text-xs text-gray-400 line-clamp-1 mt-0.5">{p.target_tweet.text}</p>
+                      </a>
+                    ) : (
+                      <a
+                        href={`https://x.com/i/web/status/${p.target_tweet_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-500 hover:underline"
+                      >
+                        {p.post_type === 'quote' ? '引用元' : '返信先'}: {p.target_tweet_id}
+                      </a>
+                    )}
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-3 mt-2 text-xs text-gray-500">
                   <span className={`font-medium ${(p.engagement_rate || 0) > 2 ? 'text-green-600' : 'text-gray-600'}`}>
                     ER: {formatPercent(p.engagement_rate || 0)}
