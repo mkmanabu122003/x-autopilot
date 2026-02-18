@@ -54,6 +54,35 @@ describe('prompts', () => {
     expect(prompts.tweet_generation.system).toContain('280文字');
   });
 
+  test('tweet_generation にAnti-AI-Smellルールが含まれる', () => {
+    expect(prompts.tweet_generation.system).toContain('Anti-AI-Smell');
+  });
+
+  test('tweet_generation に禁止表現が定義されている', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('禁止表現');
+    expect(system).toContain('素晴らしい');
+    expect(system).toContain('なるほど');
+  });
+
+  test('tweet_generation にJSON出力形式が指定されている', () => {
+    expect(prompts.tweet_generation.system).toContain('variants');
+    expect(prompts.tweet_generation.system).toContain('JSON');
+  });
+
+  test('tweet_generation に3つのツイートパターンが定義されている', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('共感型');
+    expect(system).toContain('情報提供型');
+    expect(system).toContain('挑発型');
+  });
+
+  test('tweet_generation にとっけんのペルソナ情報が含まれる', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('通訳案内士');
+    expect(system).toContain('とっけん');
+  });
+
   test('comment_generation に140文字制限が含まれる', () => {
     expect(prompts.comment_generation.system).toContain('140文字');
   });
