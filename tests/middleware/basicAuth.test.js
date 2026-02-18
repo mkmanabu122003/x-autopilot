@@ -6,7 +6,7 @@ describe('basicAuth middleware', () => {
   let req, res, next;
 
   function setupMocks() {
-    req = { headers: {} };
+    req = { headers: {}, path: '/api/some-route' };
     res = {
       status: jest.fn().mockReturnThis(),
       send: jest.fn().mockReturnThis(),
@@ -96,6 +96,43 @@ describe('basicAuth middleware', () => {
         'WWW-Authenticate',
         'Basic realm="X AutoPilot"'
       );
+    });
+
+    test('CRON_SECRET 設定時、cron エンドポイント (/api/cron/) は basic auth をスキップする', () => {
+      process.env.CRON_SECRET = 'test-cron-secret';
+      req.path = '/api/cron/scheduled';
+      req.headers.authorization = 'Bearer test-cron-secret';
+      basicAuth(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+      delete process.env.CRON_SECRET;
+    });
+
+    test('CRON_SECRET 設定時、cron エンドポイント (/cron/) は basic auth をスキップする', () => {
+      process.env.CRON_SECRET = 'test-cron-secret';
+      req.path = '/cron/auto-post';
+      req.headers.authorization = 'Bearer test-cron-secret';
+      basicAuth(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+      delete process.env.CRON_SECRET;
+    });
+
+    test('CRON_SECRET 未設定時、cron エンドポイントでも basic auth を要求する', () => {
+      delete process.env.CRON_SECRET;
+      req.path = '/api/cron/scheduled';
+      req.headers.authorization = 'Bearer some-token';
+      basicAuth(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    test('cron 以外のエンドポイントは引き続き basic auth を要求する', () => {
+      req.path = '/api/tweets';
+      req.headers.authorization = 'Bearer some-token';
+      basicAuth(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
     });
   });
 });
