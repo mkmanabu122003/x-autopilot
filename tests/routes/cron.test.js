@@ -14,8 +14,9 @@ jest.mock('express', () => {
 // Mock scheduler and auto-poster
 const mockProcessScheduledPosts = jest.fn().mockResolvedValue();
 const mockCheckAndRunAutoPosts = jest.fn().mockResolvedValue();
-const mockLogInfo = jest.fn();
-const mockLogError = jest.fn();
+const mockLogInfo = jest.fn().mockResolvedValue();
+const mockLogError = jest.fn().mockResolvedValue();
+const mockCleanOldLogs = jest.fn().mockResolvedValue();
 
 jest.mock('../../server/services/scheduler', () => ({
   processScheduledPosts: mockProcessScheduledPosts
@@ -25,7 +26,8 @@ jest.mock('../../server/services/auto-poster', () => ({
 }));
 jest.mock('../../server/services/app-logger', () => ({
   logInfo: mockLogInfo,
-  logError: mockLogError
+  logError: mockLogError,
+  cleanOldLogs: mockCleanOldLogs
 }));
 
 const cronRouter = require('../../server/routes/cron');
@@ -125,6 +127,20 @@ describe('cron route handlers', () => {
       await handlers['/scheduled'](req, res);
       expect(mockLogInfo).toHaveBeenCalledWith('cron', 'Cron /scheduled 実行開始');
       expect(mockLogInfo).toHaveBeenCalledWith('cron', 'Cron /scheduled 実行完了');
+    });
+
+    test('古いログのクリーンアップを実行する', async () => {
+      const { req, res } = createMockReqRes();
+      await handlers['/scheduled'](req, res);
+      expect(mockCleanOldLogs).toHaveBeenCalledWith(30);
+    });
+
+    test('cleanOldLogs がエラーでも処理は続行する', async () => {
+      mockCleanOldLogs.mockRejectedValueOnce(new Error('cleanup failed'));
+      const { req, res } = createMockReqRes();
+      await handlers['/scheduled'](req, res);
+      expect(mockProcessScheduledPosts).toHaveBeenCalledTimes(1);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
     });
 
     test('CRON_SECRET 設定時に認証なしでは処理を呼ばない', async () => {

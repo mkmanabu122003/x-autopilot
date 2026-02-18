@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { processScheduledPosts } = require('../services/scheduler');
 const { checkAndRunAutoPosts } = require('../services/auto-poster');
-const { logInfo, logError } = require('../services/app-logger');
+const { logInfo, logError, cleanOldLogs } = require('../services/app-logger');
 
 // Shared auth helper – requires CRON_SECRET when it is configured
 function verifyCronSecret(req, res) {
@@ -21,24 +21,29 @@ router.get('/scheduled', async (req, res) => {
   if (!verifyCronSecret(req, res)) return;
 
   try {
-    logInfo('cron', 'Cron /scheduled 実行開始');
+    await logInfo('cron', 'Cron /scheduled 実行開始');
+
+    // 0) Periodically clean old logs to prevent unbounded growth
+    try {
+      await cleanOldLogs(30);
+    } catch (_e) { /* best-effort */ }
 
     // 1) Generate new auto-posts (if any schedule_times match now)
     try {
       await checkAndRunAutoPosts();
     } catch (autoPostErr) {
       console.error('Cron /scheduled: auto-post error (non-fatal):', autoPostErr.message);
-      logError('cron', 'Cron /scheduled 内の自動投稿でエラー（続行）', { error: autoPostErr.message, stack: autoPostErr.stack });
+      await logError('cron', 'Cron /scheduled 内の自動投稿でエラー（続行）', { error: autoPostErr.message, stack: autoPostErr.stack });
     }
 
     // 2) Publish due scheduled posts
     await processScheduledPosts();
 
-    logInfo('cron', 'Cron /scheduled 実行完了');
+    await logInfo('cron', 'Cron /scheduled 実行完了');
     res.json({ ok: true, processed_at: new Date().toISOString() });
   } catch (err) {
     console.error('Cron /scheduled error:', err.message);
-    logError('cron', 'Cron /scheduled 実行エラー', { error: err.message, stack: err.stack });
+    await logError('cron', 'Cron /scheduled 実行エラー', { error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message });
   }
 });
@@ -48,13 +53,13 @@ router.get('/auto-post', async (req, res) => {
   if (!verifyCronSecret(req, res)) return;
 
   try {
-    logInfo('cron', 'Cron /auto-post 実行開始');
+    await logInfo('cron', 'Cron /auto-post 実行開始');
     await checkAndRunAutoPosts();
-    logInfo('cron', 'Cron /auto-post 実行完了');
+    await logInfo('cron', 'Cron /auto-post 実行完了');
     res.json({ ok: true });
   } catch (err) {
     console.error('Cron /auto-post error:', err.message);
-    logError('cron', 'Cron /auto-post 実行エラー', { error: err.message, stack: err.stack });
+    await logError('cron', 'Cron /auto-post 実行エラー', { error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message });
   }
 });
