@@ -28,6 +28,22 @@ export default function ScheduleList() {
   const [editTime, setEditTime] = useState('');
   const { get, post: apiPost, put, del, loading } = useAPI();
 
+  // Trigger scheduler processing then refresh the post list
+  const triggerAndFetch = async () => {
+    try {
+      // Trigger scheduler to process due posts (fire-and-forget ok on error)
+      await get('/cron/scheduled?source=client').catch(() => {});
+    } catch (err) {
+      // ignore
+    }
+    try {
+      const data = await get('/tweets/scheduled');
+      setPosts(data);
+    } catch (err) {
+      // ignore
+    }
+  };
+
   const fetchPosts = async () => {
     try {
       const data = await get('/tweets/scheduled');
@@ -47,8 +63,8 @@ export default function ScheduleList() {
   };
 
   useEffect(() => {
-    fetchPosts();
-    const interval = setInterval(fetchPosts, 30000);
+    triggerAndFetch();
+    const interval = setInterval(triggerAndFetch, 60000);
     return () => clearInterval(interval);
   }, []);
 
