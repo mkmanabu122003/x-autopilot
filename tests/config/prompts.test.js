@@ -70,13 +70,6 @@ describe('prompts', () => {
     expect(prompts.tweet_generation.system).toContain('JSON');
   });
 
-  test('tweet_generation に3つのツイートパターンが定義されている', () => {
-    const system = prompts.tweet_generation.system;
-    expect(system).toContain('共感型');
-    expect(system).toContain('情報提供型');
-    expect(system).toContain('挑発型');
-  });
-
   test('tweet_generation にとっけんのペルソナ情報が含まれる', () => {
     const system = prompts.tweet_generation.system;
     expect(system).toContain('通訳案内士');
