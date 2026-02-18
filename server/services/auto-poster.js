@@ -9,13 +9,41 @@ const { logError, logInfo } = require('./app-logger');
  * based on auto_post_settings configuration.
  *
  * Flow:
- * 1. Scheduler calls checkAndRunAutoPosts() every minute
- * 2. For each enabled setting where current time matches a schedule_time:
+ * 1. Scheduler calls checkAndRunAutoPosts() every minute (or via external cron)
+ * 2. For each enabled setting where current time is within the tolerance window
+ *    of a schedule_time:
  *    - Generate content via AI
  *    - For reply/quote: auto-select target tweets from competitors
  *    - scheduled mode: create scheduled posts spread throughout the day
  *    - immediate mode: post directly via X API
  */
+
+// Default tolerance window in minutes.
+// cron-job.org runs every 5 minutes and network/cold-start delay can push the
+// actual execution 1-2 minutes past the cron tick, so we allow up to
+// SCHEDULE_WINDOW_MINUTES after the scheduled time.
+const SCHEDULE_WINDOW_MINUTES = 5;
+
+/**
+ * Check if the current time falls within a tolerance window after the
+ * scheduled time.  e.g. scheduled "20:50" with window 5 matches
+ * currentTime "20:50" through "20:54".
+ *
+ * Both times are in "HH:MM" format. Handles the midnight boundary correctly.
+ */
+function isTimeInWindow(scheduledTime, currentTime, windowMinutes = SCHEDULE_WINDOW_MINUTES) {
+  const [schedH, schedM] = scheduledTime.split(':').map(Number);
+  const [currH, currM] = currentTime.split(':').map(Number);
+
+  const schedTotal = schedH * 60 + schedM;
+  const currTotal = currH * 60 + currM;
+
+  // Handle midnight wrap-around (e.g. scheduled 23:58, current 00:01)
+  let diff = currTotal - schedTotal;
+  if (diff < 0) diff += 24 * 60;
+
+  return diff >= 0 && diff < windowMinutes;
+}
 
 async function checkAndRunAutoPosts() {
   const sb = getDb();
@@ -38,23 +66,27 @@ async function checkAndRunAutoPosts() {
   for (const setting of allSettings) {
     try {
       const times = (setting.schedule_times || '').split(',').map(t => t.trim());
-      if (!times.includes(currentTime)) continue;
+
+      // Find the first scheduled time that falls within the tolerance window
+      const matchedTime = times.find(t => isTimeInWindow(t, currentTime));
+      if (!matchedTime) continue;
 
       // Check if this specific time slot has already been run today
       const ranTimes = (setting.last_run_times || '').split(',').map(t => t.trim()).filter(Boolean);
-      if (setting.last_run_date === today && ranTimes.includes(currentTime)) continue;
+      if (setting.last_run_date === today && ranTimes.includes(matchedTime)) continue;
 
-      console.log(`AutoPoster: running ${setting.post_type} for account ${setting.account_id} at ${currentTime}`);
+      console.log(`AutoPoster: running ${setting.post_type} for account ${setting.account_id} at ${currentTime} (scheduled: ${matchedTime})`);
 
       // Calculate how many posts for this time slot
       const postsForSlot = Math.ceil(setting.posts_per_day / times.length);
 
-      await executeAutoPost(setting, postsForSlot, currentTime);
+      await executeAutoPost(setting, postsForSlot, matchedTime);
 
-      // Update last_run tracking
+      // Update last_run tracking – record the *scheduled* time, not the actual
+      // current time, so that the duplicate guard works correctly.
       const updatedTimes = setting.last_run_date === today
-        ? [...ranTimes, currentTime].join(',')
-        : currentTime;
+        ? [...ranTimes, matchedTime].join(',')
+        : matchedTime;
 
       await sb.from('auto_post_settings')
         .update({
@@ -482,5 +514,7 @@ async function runAutoPostManually(settingId) {
 module.exports = {
   checkAndRunAutoPosts,
   runAutoPostManually,
-  logAutoPostExecution
+  logAutoPostExecution,
+  isTimeInWindow,
+  SCHEDULE_WINDOW_MINUTES
 };
