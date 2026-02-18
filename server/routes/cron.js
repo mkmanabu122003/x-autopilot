@@ -14,14 +14,26 @@ function verifyCronSecret(req, res) {
   return false;
 }
 
-// GET /api/cron/scheduled - Process due scheduled posts
+// GET /api/cron/scheduled - Process due scheduled posts AND auto-post generation
 // Called by Vercel Cron or external cron services (cron-job.org etc.)
+// This single endpoint handles both so only one cron-job.org job is needed.
 router.get('/scheduled', async (req, res) => {
   if (!verifyCronSecret(req, res)) return;
 
   try {
     logInfo('cron', 'Cron /scheduled 実行開始');
+
+    // 1) Generate new auto-posts (if any schedule_times match now)
+    try {
+      await checkAndRunAutoPosts();
+    } catch (autoPostErr) {
+      console.error('Cron /scheduled: auto-post error (non-fatal):', autoPostErr.message);
+      logError('cron', 'Cron /scheduled 内の自動投稿でエラー（続行）', { error: autoPostErr.message, stack: autoPostErr.stack });
+    }
+
+    // 2) Publish due scheduled posts
     await processScheduledPosts();
+
     logInfo('cron', 'Cron /scheduled 実行完了');
     res.json({ ok: true, processed_at: new Date().toISOString() });
   } catch (err) {
