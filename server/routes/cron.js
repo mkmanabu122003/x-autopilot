@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { processScheduledPosts } = require('../services/scheduler');
 const { checkAndRunAutoPosts } = require('../services/auto-poster');
+const { logInfo, logError } = require('../services/app-logger');
 
 // Shared auth helper – requires CRON_SECRET when it is configured
 function verifyCronSecret(req, res) {
@@ -19,10 +20,13 @@ router.get('/scheduled', async (req, res) => {
   if (!verifyCronSecret(req, res)) return;
 
   try {
+    logInfo('cron', 'Cron /scheduled 実行開始');
     await processScheduledPosts();
+    logInfo('cron', 'Cron /scheduled 実行完了');
     res.json({ ok: true, processed_at: new Date().toISOString() });
   } catch (err) {
     console.error('Cron /scheduled error:', err.message);
+    logError('cron', 'Cron /scheduled 実行エラー', { error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message });
   }
 });
@@ -32,10 +36,13 @@ router.get('/auto-post', async (req, res) => {
   if (!verifyCronSecret(req, res)) return;
 
   try {
+    logInfo('cron', 'Cron /auto-post 実行開始');
     await checkAndRunAutoPosts();
+    logInfo('cron', 'Cron /auto-post 実行完了');
     res.json({ ok: true });
   } catch (err) {
     console.error('Cron /auto-post error:', err.message);
+    logError('cron', 'Cron /auto-post 実行エラー', { error: err.message, stack: err.stack });
     res.status(500).json({ error: err.message });
   }
 });

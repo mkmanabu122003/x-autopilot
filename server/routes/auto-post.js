@@ -113,28 +113,38 @@ router.get('/logs', async (req, res) => {
   try {
     const sb = getDb();
     const accountId = req.query.accountId;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const offset = parseInt(req.query.offset) || 0;
 
+    // Build count query
+    let countQuery = sb.from('auto_post_logs')
+      .select('id', { count: 'exact', head: true });
+    if (accountId) {
+      countQuery = countQuery.eq('account_id', accountId);
+    }
+
+    // Build data query
     let query = sb.from('auto_post_logs')
       .select('*, x_accounts(display_name, handle)')
       .order('executed_at', { ascending: false })
-      .limit(limit);
+      .range(offset, offset + limit - 1);
 
     if (accountId) {
       query = query.eq('account_id', accountId);
     }
 
-    const { data, error } = await query;
-    if (error) throw error;
+    const [countResult, dataResult] = await Promise.all([countQuery, query]);
 
-    const logs = (data || []).map(l => ({
+    if (dataResult.error) throw dataResult.error;
+
+    const logs = (dataResult.data || []).map(l => ({
       ...l,
       account_name: l.x_accounts?.display_name,
       account_handle: l.x_accounts?.handle,
       x_accounts: undefined
     }));
 
-    res.json(logs);
+    res.json({ logs, total: countResult.count || 0, limit, offset });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

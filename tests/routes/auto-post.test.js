@@ -11,6 +11,7 @@ const mockDelete = jest.fn(() => mockChain);
 const mockEq = jest.fn(() => mockChain);
 const mockOrder = jest.fn(() => mockChain);
 const mockLimit = jest.fn(() => mockChain);
+const mockRange = jest.fn(() => mockChain);
 const mockSingle = jest.fn();
 
 Object.assign(mockChain, {
@@ -22,6 +23,7 @@ Object.assign(mockChain, {
   eq: mockEq,
   order: mockOrder,
   limit: mockLimit,
+  range: mockRange,
   single: mockSingle,
   then: jest.fn((resolve) => resolve({ data: null, error: null })),
 });
@@ -103,6 +105,7 @@ describe('auto-post routes', () => {
     mockEq.mockImplementation(() => mockChain);
     mockOrder.mockImplementation(() => mockChain);
     mockLimit.mockImplementation(() => mockChain);
+    mockRange.mockImplementation(() => mockChain);
     mockUpdate.mockImplementation(() => mockChain);
     mockInsert.mockImplementation(() => mockChain);
     mockDelete.mockImplementation(() => mockChain);
@@ -221,21 +224,72 @@ describe('auto-post routes', () => {
   });
 
   describe('GET /api/auto-post/logs', () => {
-    test('実行ログを取得する', async () => {
-      // Chain: from().select().order().limit().eq() → await resolves via mockChain.then
-      mockChain.then = jest.fn((resolve) => resolve({
-        data: [
-          { id: 1, account_id: 1, post_type: 'reply', posts_generated: 2, status: 'success', executed_at: '2026-02-17T10:00:00Z', x_accounts: { display_name: 'Test', handle: '@test' } },
-        ],
-        error: null
-      }));
+    test('実行ログをページネーション付きで取得する', async () => {
+      // Promise.all resolves both count and data queries
+      // The route calls two queries via Promise.all, both resolve from the same mockChain.then
+      let callCount = 0;
+      mockChain.then = jest.fn((resolve) => {
+        callCount++;
+        if (callCount === 1) {
+          // count query
+          return resolve({ count: 1, error: null });
+        }
+        // data query
+        return resolve({
+          data: [
+            { id: 1, account_id: 1, post_type: 'reply', posts_generated: 2, status: 'success', executed_at: '2026-02-17T10:00:00Z', x_accounts: { display_name: 'Test', handle: '@test' } },
+          ],
+          error: null
+        });
+      });
 
       const app = createApp();
       const res = await request(app).get('/api/auto-post/logs?accountId=1&limit=10');
       expect(res.status).toBe(200);
-      expect(res.body).toHaveLength(1);
-      expect(res.body[0].account_name).toBe('Test');
-      expect(res.body[0].x_accounts).toBeUndefined();
+      expect(res.body.logs).toHaveLength(1);
+      expect(res.body.total).toBe(1);
+      expect(res.body.limit).toBe(10);
+      expect(res.body.offset).toBe(0);
+      expect(res.body.logs[0].account_name).toBe('Test');
+      expect(res.body.logs[0].x_accounts).toBeUndefined();
+    });
+
+    test('offset を指定してページネーションできる', async () => {
+      let callCount = 0;
+      mockChain.then = jest.fn((resolve) => {
+        callCount++;
+        if (callCount === 1) {
+          return resolve({ count: 25, error: null });
+        }
+        return resolve({
+          data: [
+            { id: 21, account_id: 1, post_type: 'new', posts_generated: 1, status: 'success', executed_at: '2026-02-16T09:00:00Z', x_accounts: { display_name: 'Test', handle: '@test' } },
+          ],
+          error: null
+        });
+      });
+
+      const app = createApp();
+      const res = await request(app).get('/api/auto-post/logs?accountId=1&limit=20&offset=20');
+      expect(res.status).toBe(200);
+      expect(res.body.total).toBe(25);
+      expect(res.body.limit).toBe(20);
+      expect(res.body.offset).toBe(20);
+      expect(res.body.logs).toHaveLength(1);
+    });
+
+    test('limit の上限は 100', async () => {
+      let callCount = 0;
+      mockChain.then = jest.fn((resolve) => {
+        callCount++;
+        if (callCount === 1) return resolve({ count: 0, error: null });
+        return resolve({ data: [], error: null });
+      });
+
+      const app = createApp();
+      const res = await request(app).get('/api/auto-post/logs?accountId=1&limit=999');
+      expect(res.status).toBe(200);
+      expect(res.body.limit).toBe(100);
     });
   });
 });
