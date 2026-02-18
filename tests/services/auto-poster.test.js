@@ -50,10 +50,49 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
-const { logAutoPostExecution, isTimeInWindow, SCHEDULE_WINDOW_MINUTES } = require('../../server/services/auto-poster');
+const { logAutoPostExecution, isTimeInWindow, getJSTNow, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
 
 describe('auto-poster', () => {
+  describe('getJSTNow', () => {
+    test('currentTime は HH:MM 形式を返す', () => {
+      const { currentTime } = getJSTNow();
+      expect(currentTime).toMatch(/^\d{2}:\d{2}$/);
+    });
+
+    test('today は YYYY-MM-DD 形式を返す', () => {
+      const { today } = getJSTNow();
+      expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    });
+
+    test('now は Date オブジェクトを返す', () => {
+      const { now } = getJSTNow();
+      expect(now).toBeInstanceOf(Date);
+    });
+
+    test('UTC サーバーでも JST 時刻を正しく返す（UTC+9時間のオフセット）', () => {
+      const { currentTime, now } = getJSTNow();
+      const [h, m] = currentTime.split(':').map(Number);
+      // JST = UTC + 9h
+      const jstMs = now.getTime() + JST_OFFSET_HOURS * 60 * 60 * 1000;
+      const jst = new Date(jstMs);
+      expect(h).toBe(jst.getUTCHours());
+      expect(m).toBe(jst.getUTCMinutes());
+    });
+
+    test('JST の日付が正しい（UTC 15:00以降は翌日）', () => {
+      const { today, now } = getJSTNow();
+      const jstMs = now.getTime() + JST_OFFSET_HOURS * 60 * 60 * 1000;
+      const jst = new Date(jstMs);
+      const expectedDate = jst.toISOString().slice(0, 10);
+      expect(today).toBe(expectedDate);
+    });
+
+    test('JST_OFFSET_HOURS は9（UTC+9）', () => {
+      expect(JST_OFFSET_HOURS).toBe(9);
+    });
+  });
+
   describe('isTimeInWindow', () => {
     test('完全一致はマッチする', () => {
       expect(isTimeInWindow('20:50', '20:50')).toBe(true);
