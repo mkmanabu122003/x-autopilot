@@ -112,9 +112,10 @@ describe('cron route handlers', () => {
   });
 
   describe('/scheduled handler', () => {
-    test('認証成功時に processScheduledPosts を呼び出す', async () => {
+    test('認証成功時に checkAndRunAutoPosts と processScheduledPosts の両方を呼び出す', async () => {
       const { req, res } = createMockReqRes();
       await handlers['/scheduled'](req, res);
+      expect(mockCheckAndRunAutoPosts).toHaveBeenCalledTimes(1);
       expect(mockProcessScheduledPosts).toHaveBeenCalledTimes(1);
       expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
     });
@@ -126,12 +127,22 @@ describe('cron route handlers', () => {
       expect(mockLogInfo).toHaveBeenCalledWith('cron', 'Cron /scheduled 実行完了');
     });
 
-    test('CRON_SECRET 設定時に認証なしでは processScheduledPosts を呼ばない', async () => {
+    test('CRON_SECRET 設定時に認証なしでは処理を呼ばない', async () => {
       process.env.CRON_SECRET = 'secret';
       const { req, res } = createMockReqRes();
       await handlers['/scheduled'](req, res);
       expect(mockProcessScheduledPosts).not.toHaveBeenCalled();
+      expect(mockCheckAndRunAutoPosts).not.toHaveBeenCalled();
       expect(res.status).toHaveBeenCalledWith(401);
+    });
+
+    test('checkAndRunAutoPosts がエラーでも processScheduledPosts は続行する', async () => {
+      mockCheckAndRunAutoPosts.mockRejectedValueOnce(new Error('auto-post failed'));
+      const { req, res } = createMockReqRes();
+      await handlers['/scheduled'](req, res);
+      expect(mockProcessScheduledPosts).toHaveBeenCalledTimes(1);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ ok: true }));
+      expect(mockLogError).toHaveBeenCalledWith('cron', 'Cron /scheduled 内の自動投稿でエラー（続行）', expect.any(Object));
     });
 
     test('processScheduledPosts がエラーの場合は 500 を返しエラーログを記録する', async () => {
