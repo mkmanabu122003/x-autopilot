@@ -6,7 +6,7 @@ describe('basicAuth middleware', () => {
   let req, res, next;
 
   function setupMocks() {
-    req = { headers: {} };
+    req = { headers: {}, path: '/api/some-route' };
     res = {
       status: jest.fn().mockReturnThis(),
       send: jest.fn().mockReturnThis(),
@@ -96,6 +96,30 @@ describe('basicAuth middleware', () => {
         'WWW-Authenticate',
         'Basic realm="X AutoPilot"'
       );
+    });
+
+    test('cron エンドポイント (/api/cron/) は basic auth をスキップする', () => {
+      req.path = '/api/cron/scheduled';
+      req.headers.authorization = 'Bearer some-cron-secret';
+      basicAuth(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    test('cron エンドポイント (/cron/) は basic auth をスキップする', () => {
+      req.path = '/cron/auto-post';
+      req.headers.authorization = 'Bearer some-cron-secret';
+      basicAuth(req, res, next);
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    test('cron 以外のエンドポイントは引き続き basic auth を要求する', () => {
+      req.path = '/api/tweets';
+      req.headers.authorization = 'Bearer some-token';
+      basicAuth(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
     });
   });
 });

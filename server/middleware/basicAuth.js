@@ -6,6 +6,11 @@ function basicAuth(req, res, next) {
     return next();
   }
 
+  // Skip basic auth for cron endpoints (authenticated by CRON_SECRET instead)
+  if (req.path.startsWith('/api/cron/') || req.path.startsWith('/cron/')) {
+    return next();
+  }
+
   const header = req.headers.authorization;
 
   if (!header || !header.startsWith('Basic ')) {
