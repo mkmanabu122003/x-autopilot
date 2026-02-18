@@ -50,10 +50,65 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
-const { logAutoPostExecution } = require('../../server/services/auto-poster');
+const { logAutoPostExecution, isTimeInWindow, SCHEDULE_WINDOW_MINUTES } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
 
 describe('auto-poster', () => {
+  describe('isTimeInWindow', () => {
+    test('完全一致はマッチする', () => {
+      expect(isTimeInWindow('20:50', '20:50')).toBe(true);
+    });
+
+    test('ウィンドウ内（+1分）はマッチする', () => {
+      expect(isTimeInWindow('20:50', '20:51')).toBe(true);
+    });
+
+    test('ウィンドウ内（+4分）はマッチする', () => {
+      expect(isTimeInWindow('20:50', '20:54')).toBe(true);
+    });
+
+    test('ウィンドウ外（+5分）はマッチしない', () => {
+      expect(isTimeInWindow('20:50', '20:55')).toBe(false);
+    });
+
+    test('設定時刻より前はマッチしない', () => {
+      expect(isTimeInWindow('20:50', '20:49')).toBe(false);
+    });
+
+    test('大幅にずれている場合はマッチしない', () => {
+      expect(isTimeInWindow('20:50', '21:00')).toBe(false);
+    });
+
+    test('深夜帯の時刻でも正しく動作する', () => {
+      expect(isTimeInWindow('23:58', '23:59')).toBe(true);
+    });
+
+    test('深夜のラップアラウンド: 23:58設定で00:01はウィンドウ内', () => {
+      expect(isTimeInWindow('23:58', '00:01')).toBe(true);
+    });
+
+    test('深夜のラップアラウンド: 23:58設定で00:05はウィンドウ外', () => {
+      expect(isTimeInWindow('23:58', '00:05')).toBe(false);
+    });
+
+    test('カスタムウィンドウ幅を指定できる', () => {
+      expect(isTimeInWindow('09:00', '09:09', 10)).toBe(true);
+      expect(isTimeInWindow('09:00', '09:10', 10)).toBe(false);
+    });
+
+    test('09:08設定で09:10（cron-job.org 5分間隔）はマッチする', () => {
+      expect(isTimeInWindow('09:08', '09:10')).toBe(true);
+    });
+
+    test('09:08設定で09:05はマッチしない（設定時刻より前）', () => {
+      expect(isTimeInWindow('09:08', '09:05')).toBe(false);
+    });
+
+    test('SCHEDULE_WINDOW_MINUTES のデフォルトは5', () => {
+      expect(SCHEDULE_WINDOW_MINUTES).toBe(5);
+    });
+  });
+
   describe('logAutoPostExecution', () => {
     test('下書き作成時に error_message が null で記録される', async () => {
       const mockInsert = jest.fn().mockResolvedValue({ error: null });
