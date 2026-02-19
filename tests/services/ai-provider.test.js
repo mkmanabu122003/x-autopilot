@@ -284,6 +284,29 @@ describe('ai-provider', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
+    test('タイムアウトでAbortErrorを投げる', async () => {
+      jest.useRealTimers();
+      // Simulate a fetch that respects the AbortSignal
+      jest.spyOn(global, 'fetch').mockImplementation((url, opts) =>
+        new Promise((resolve, reject) => {
+          const timer = setTimeout(() => resolve({ ok: true }), 5000);
+          if (opts?.signal) {
+            opts.signal.addEventListener('abort', () => {
+              clearTimeout(timer);
+              const err = new Error('The operation was aborted');
+              err.name = 'AbortError';
+              reject(err);
+            });
+          }
+        })
+      );
+
+      await expect(
+        fetchWithRetry('https://example.com/api', { method: 'POST' }, { timeoutMs: 50 })
+      ).rejects.toThrow('タイムアウト');
+      jest.useFakeTimers();
+    });
+
     test('指数バックオフで待機時間が増加する', async () => {
       const mock429 = { ok: false, status: 429, json: async () => ({ error: 'rate limit' }) };
       const mockOk = { ok: true, json: async () => ({ result: 'ok' }) };
@@ -333,7 +356,7 @@ describe('ai-provider', () => {
       const tasks = ['tweet_generation', 'reply_generation', 'quote_rt_generation', 'comment_generation'];
       for (const task of tasks) {
         const config = provider.getThinkingConfig('claude-opus-4-6', task);
-        expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
+        expect(config).toEqual({ type: 'enabled', budget_tokens: 512 });
       }
     });
 
