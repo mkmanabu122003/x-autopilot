@@ -10,7 +10,7 @@ jest.mock('../../server/db/database', () => {
   };
 });
 
-const { calculateEngagementRate, getReplySuggestions, getQuoteSuggestions } = require('../../server/services/analytics');
+const { calculateEngagementRate, distributeByHandle, getReplySuggestions, getQuoteSuggestions } = require('../../server/services/analytics');
 const { getDb } = require('../../server/db/database');
 const { getMyRepliedTweetIds } = require('../../server/services/x-api');
 
@@ -106,6 +106,71 @@ describe('analytics', () => {
       };
       // (10000 + 5000 + 2000 + 1000) / 1000000 * 100 = 1.8
       expect(calculateEngagementRate(metrics)).toBeCloseTo(1.8, 1);
+    });
+  });
+
+  describe('distributeByHandle', () => {
+    test('同じハンドルのツイートが連続しないようラウンドロビンで分散される', () => {
+      const suggestions = [
+        { handle: 'userA', tweet_id: 'a1', engagement_rate: 10 },
+        { handle: 'userA', tweet_id: 'a2', engagement_rate: 9 },
+        { handle: 'userA', tweet_id: 'a3', engagement_rate: 8 },
+        { handle: 'userB', tweet_id: 'b1', engagement_rate: 7 },
+        { handle: 'userB', tweet_id: 'b2', engagement_rate: 6 },
+        { handle: 'userC', tweet_id: 'c1', engagement_rate: 5 },
+      ];
+
+      const result = distributeByHandle(suggestions, 4);
+      const handles = result.map(r => r.handle);
+
+      // First round: userA, userB, userC (one each)
+      // Second round: userA (second tweet)
+      expect(handles).toEqual(['userA', 'userB', 'userC', 'userA']);
+      expect(result[0].tweet_id).toBe('a1'); // best from userA
+      expect(result[1].tweet_id).toBe('b1'); // best from userB
+      expect(result[2].tweet_id).toBe('c1'); // best from userC
+      expect(result[3].tweet_id).toBe('a2'); // second from userA
+    });
+
+    test('limit が候補数より多い場合は全候補を返す', () => {
+      const suggestions = [
+        { handle: 'userA', tweet_id: 'a1', engagement_rate: 10 },
+        { handle: 'userB', tweet_id: 'b1', engagement_rate: 9 },
+      ];
+
+      const result = distributeByHandle(suggestions, 5);
+      expect(result).toHaveLength(2);
+    });
+
+    test('空の配列を渡すと空の配列が返る', () => {
+      const result = distributeByHandle([], 3);
+      expect(result).toEqual([]);
+    });
+
+    test('1人のハンドルしかない場合はそのまま返す', () => {
+      const suggestions = [
+        { handle: 'userA', tweet_id: 'a1', engagement_rate: 10 },
+        { handle: 'userA', tweet_id: 'a2', engagement_rate: 9 },
+        { handle: 'userA', tweet_id: 'a3', engagement_rate: 8 },
+      ];
+
+      const result = distributeByHandle(suggestions, 2);
+      expect(result).toHaveLength(2);
+      expect(result[0].tweet_id).toBe('a1');
+      expect(result[1].tweet_id).toBe('a2');
+    });
+
+    test('handle が undefined の場合は unknown として扱われる', () => {
+      const suggestions = [
+        { handle: undefined, tweet_id: 'x1', engagement_rate: 10 },
+        { handle: 'userA', tweet_id: 'a1', engagement_rate: 9 },
+        { handle: undefined, tweet_id: 'x2', engagement_rate: 8 },
+      ];
+
+      const result = distributeByHandle(suggestions, 3);
+      const handles = result.map(r => r.handle || 'unknown');
+      // Round-robin: unknown, userA, then unknown again
+      expect(handles).toEqual(['unknown', 'userA', 'unknown']);
     });
   });
 
@@ -241,6 +306,33 @@ describe('analytics', () => {
       const ids = suggestions.map(s => s.tweet_id);
       expect(ids).not.toContain('tweet-1');
       expect(ids).toContain('tweet-2');
+    });
+
+    test('同じハンドルのツイートが連続せずラウンドロビンで分散される', async () => {
+      const competitorTweets = [
+        { tweet_id: 'tweet-1', text: 'ツイート1', engagement_rate: 10.0, competitors: { handle: 'userA', name: 'User A' } },
+        { tweet_id: 'tweet-2', text: 'ツイート2', engagement_rate: 9.0, competitors: { handle: 'userA', name: 'User A' } },
+        { tweet_id: 'tweet-3', text: 'ツイート3', engagement_rate: 8.0, competitors: { handle: 'userA', name: 'User A' } },
+        { tweet_id: 'tweet-4', text: 'ツイート4', engagement_rate: 7.0, competitors: { handle: 'userB', name: 'User B' } },
+        { tweet_id: 'tweet-5', text: 'ツイート5', engagement_rate: 6.0, competitors: { handle: 'userC', name: 'User C' } },
+      ];
+
+      setupDbMock({
+        engagedRows: [],
+        competitorIds: ['comp-1'],
+        competitorTweets
+      });
+
+      getMyRepliedTweetIds.mockResolvedValue([]);
+
+      const suggestions = await getReplySuggestions('acc-1', { limit: 3 });
+      const handles = suggestions.map(s => s.handle);
+
+      // Should pick one from each handle first: userA, userB, userC
+      expect(handles).toEqual(['userA', 'userB', 'userC']);
+      expect(suggestions[0].tweet_id).toBe('tweet-1');
+      expect(suggestions[1].tweet_id).toBe('tweet-4');
+      expect(suggestions[2].tweet_id).toBe('tweet-5');
     });
   });
 

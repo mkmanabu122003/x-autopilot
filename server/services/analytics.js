@@ -213,6 +213,39 @@ async function getCompetitorContext(accountId) {
   return context;
 }
 
+/**
+ * Distribute suggestions across different handles using round-robin.
+ * Input must be sorted by engagement_rate DESC.
+ * Picks the best tweet from each handle first, then cycles back for seconds, etc.
+ */
+function distributeByHandle(suggestions, limit) {
+  const byHandle = new Map();
+  for (const s of suggestions) {
+    const handle = s.handle || 'unknown';
+    if (!byHandle.has(handle)) byHandle.set(handle, []);
+    byHandle.get(handle).push(s);
+  }
+
+  const handleGroups = Array.from(byHandle.values());
+  const result = [];
+  let round = 0;
+
+  while (result.length < limit) {
+    let added = false;
+    for (const group of handleGroups) {
+      if (round < group.length) {
+        result.push(group[round]);
+        added = true;
+        if (result.length >= limit) break;
+      }
+    }
+    if (!added) break;
+    round++;
+  }
+
+  return result;
+}
+
 async function getQuoteSuggestions(accountId, options = {}) {
   const sb = getDb();
   const limit = options.limit || 10;
@@ -248,20 +281,20 @@ async function getQuoteSuggestions(accountId, options = {}) {
     if (competitorIds.length === 0) return [];
   }
 
-  // Fetch top tweets by engagement, excluding already-engaged
+  // Fetch more candidates than needed so distributeByHandle has enough variety
+  const fetchLimit = limit * 3 + allEngagedIds.length;
   let query = sb.from('competitor_tweets')
     .select('*, competitors(handle, name)')
     .gte('engagement_rate', minEngagementRate)
     .order('engagement_rate', { ascending: false })
-    .limit(limit + allEngagedIds.length);
+    .limit(fetchLimit);
 
   if (competitorIds) query = query.in('competitor_id', competitorIds);
   const { data, error } = await query;
   if (error) throw error;
 
-  const suggestions = (data || [])
+  const filtered = (data || [])
     .filter(t => !allEngagedIds.includes(t.tweet_id))
-    .slice(0, limit)
     .map(t => ({
       ...t,
       handle: t.competitors?.handle,
@@ -269,7 +302,8 @@ async function getQuoteSuggestions(accountId, options = {}) {
       competitors: undefined
     }));
 
-  return suggestions;
+  // Distribute across different handles to avoid quoting the same person repeatedly
+  return distributeByHandle(filtered, limit);
 }
 
 async function getReplySuggestions(accountId, options = {}) {
@@ -307,20 +341,20 @@ async function getReplySuggestions(accountId, options = {}) {
     if (competitorIds.length === 0) return [];
   }
 
-  // Fetch top tweets by engagement, excluding already-engaged
+  // Fetch more candidates than needed so distributeByHandle has enough variety
+  const fetchLimit = limit * 3 + allEngagedIds.length;
   let query = sb.from('competitor_tweets')
     .select('*, competitors(handle, name)')
     .gte('engagement_rate', minEngagementRate)
     .order('engagement_rate', { ascending: false })
-    .limit(limit + allEngagedIds.length);
+    .limit(fetchLimit);
 
   if (competitorIds) query = query.in('competitor_id', competitorIds);
   const { data, error } = await query;
   if (error) throw error;
 
-  const suggestions = (data || [])
+  const filtered = (data || [])
     .filter(t => !allEngagedIds.includes(t.tweet_id))
-    .slice(0, limit)
     .map(t => ({
       ...t,
       handle: t.competitors?.handle,
@@ -328,11 +362,13 @@ async function getReplySuggestions(accountId, options = {}) {
       competitors: undefined
     }));
 
-  return suggestions;
+  // Distribute across different handles to avoid replying to the same person repeatedly
+  return distributeByHandle(filtered, limit);
 }
 
 module.exports = {
   calculateEngagementRate,
+  distributeByHandle,
   getDashboardSummary,
   getTopPosts,
   getHourlyPerformance,
