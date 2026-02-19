@@ -287,6 +287,31 @@ describe('auto-post routes', () => {
       );
     });
 
+    test('schedule_mode に draft を指定して保存できる', async () => {
+      mockSingle.mockResolvedValueOnce({ data: { id: 5 }, error: null });
+      mockUpsert.mockImplementationOnce(() => ({ ...mockChain, select: () => ({ single: mockSingle }) }));
+
+      const app = createApp();
+      const res = await request(app).put('/api/auto-post/settings').send({
+        accountId: 1,
+        postType: 'new',
+        enabled: true,
+        postsPerDay: 3,
+        scheduleTimes: '09:00',
+        scheduleMode: 'draft',
+        themes: 'テスト',
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          schedule_mode: 'draft',
+        }),
+        expect.anything()
+      );
+    });
+
     test('upsert エラー時は 500 を返す', async () => {
       mockSingle.mockResolvedValueOnce({ data: null, error: new Error('upsert failed') });
       mockUpsert.mockImplementationOnce(() => ({ ...mockChain, select: () => ({ single: mockSingle }) }));

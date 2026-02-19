@@ -246,7 +246,7 @@ CREATE TABLE IF NOT EXISTS auto_post_settings (
   enabled BOOLEAN DEFAULT FALSE,
   posts_per_day INTEGER DEFAULT 1,
   schedule_times TEXT NOT NULL DEFAULT '09:00',
-  schedule_mode TEXT DEFAULT 'scheduled' CHECK(schedule_mode IN ('scheduled', 'immediate')),
+  schedule_mode TEXT DEFAULT 'scheduled' CHECK(schedule_mode IN ('scheduled', 'immediate', 'draft')),
   themes TEXT DEFAULT '',
   tone TEXT DEFAULT '',
   target_audience TEXT DEFAULT '',
@@ -308,3 +308,11 @@ ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS target_audience TEXT DEF
 ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS style_note TEXT DEFAULT '';
 ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS ai_model TEXT DEFAULT '';
 ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS max_length INTEGER DEFAULT 0;
+
+-- ============================================
+-- Add 'draft' to schedule_mode options
+-- ============================================
+-- Drop old constraint and re-create with 'draft' option
+ALTER TABLE auto_post_settings DROP CONSTRAINT IF EXISTS auto_post_settings_schedule_mode_check;
+ALTER TABLE auto_post_settings ADD CONSTRAINT auto_post_settings_schedule_mode_check
+  CHECK(schedule_mode IN ('scheduled', 'immediate', 'draft'));

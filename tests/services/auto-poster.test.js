@@ -443,6 +443,92 @@ describe('auto-poster', () => {
       expect(updateCalls).toHaveLength(0);
     });
 
+    test('schedule_mode が "draft" の新規ツイートは下書きとして保存される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      const { updateCalls, insertCalls } = setupMockDb([{
+        id: 'setting-new-draft',
+        account_id: 'account-1',
+        post_type: 'new',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'draft',
+        themes: 'AI,プログラミング',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      expect(updateCalls).toHaveLength(1);
+      // my_posts への insert で status が 'draft' であること
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts.length).toBeGreaterThanOrEqual(1);
+      expect(postInserts[0].data.status).toBe('draft');
+    });
+
+    test('schedule_mode が "draft" のリプライは下書きとして保存される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      getReplySuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-draft', text: 'ターゲットツイート', handle: 'rival' }
+      ]);
+
+      const { updateCalls, insertCalls } = setupMockDb([{
+        id: 'setting-reply-draft',
+        account_id: 'account-1',
+        post_type: 'reply',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'draft',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      expect(updateCalls).toHaveLength(1);
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts.length).toBeGreaterThanOrEqual(1);
+      expect(postInserts[0].data.status).toBe('draft');
+    });
+
+    test('schedule_mode が "draft" の引用RTは下書きとして保存される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      const { getQuoteSuggestions } = require('../../server/services/analytics');
+      getQuoteSuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-qdraft', text: '引用対象ツイート', handle: 'competitor' }
+      ]);
+
+      const { updateCalls, insertCalls } = setupMockDb([{
+        id: 'setting-quote-draft',
+        account_id: 'account-1',
+        post_type: 'quote',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 1,
+        schedule_mode: 'draft',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      expect(updateCalls).toHaveLength(1);
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts.length).toBeGreaterThanOrEqual(1);
+      expect(postInserts[0].data.status).toBe('draft');
+    });
+
     test('複数の schedule_times で該当するスロットだけ実行される', async () => {
       jest.useFakeTimers();
       jest.setSystemTime(new Date('2026-02-18T04:00:00Z')); // JST 13:00
