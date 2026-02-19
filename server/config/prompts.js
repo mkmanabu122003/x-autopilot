@@ -26,6 +26,38 @@ bodyにはそのままXに投稿できる完成テキストのみを書くこと
 const JSON_OUTPUT_INSTRUCTION = `出力はJSON形式で返してください。コードフェンス（\`\`\`json）は付けないこと：
 {"variants":[{"label":"この案の狙い（1行）","body":"投稿本文","char_count":文字数}]}`;
 
+const STRUCTURAL_PATTERNS = `# ツイートの構造パターン
+
+各ツイートは「冒頭→展開→締め」の3段構成で組み立てる。
+各カテゴリから1つずつ選んで組み合わせること。3案それぞれ異なる組み合わせにすること。
+
+## 冒頭（opening_pattern）
+- O-A: ゲストのセリフ — 「」で始まる。ゲストの生の発言から入る
+- O-B: 数字・場所・時間 — 具体的な情景描写から入る（例：「浅草の雷門前、朝8時。」）
+- O-C: 失敗・違和感 — 自分がつまずいた瞬間から入る
+- O-D: 常識の否定 — 通説をひっくり返す一文から入る（例：「語彙力があればガイドできる、は嘘。」）
+- O-E: 比較・対比 — 2つの事象の差分から入る
+
+## 展開（development_pattern）
+- D-A: 対比構造 — 2つの概念を行き来する
+- D-B: エピソード深掘り — 1つの出来事だけを具体的に描写する
+- D-C: 時系列＋脱線 — 時間順だが途中で自問・脱線を1回以上挟む
+- D-D: 列挙崩し — 一見リストだが途中で1項目だけ深掘りする
+
+## 締め（closing_pattern）
+- C-A: 断言 — 言い切りで閉じる
+- C-B: 問いかけ — 読者に考えさせる問いで開く
+- C-C: 余韻 — 結論を明示せず情景や感覚で閉じる
+- C-D: 行動示唆 — 「明日から試せる」系の次のアクションで閉じる`;
+
+const JSON_OUTPUT_INSTRUCTION_TWEET = `出力はJSON形式で返してください。コードフェンス（\`\`\`json）は付けないこと：
+{"variants":[{"label":"この案の狙い（1行）","body":"投稿本文","char_count":文字数,"opening_pattern":"O-X","development_pattern":"D-X","closing_pattern":"C-X","expressions":["特徴的な表現1","特徴的な表現2"]}]}
+
+- opening_pattern: 使用した冒頭パターンのコード（O-A〜O-E）
+- development_pattern: 使用した展開パターンのコード（D-A〜D-D）
+- closing_pattern: 使用した締めパターンのコード（C-A〜C-D）
+- expressions: そのツイートで使った特徴的な表現やフレーズ（2〜3個）`;
+
 module.exports = {
   tweet_generation: {
     system: `あなたは通訳案内士・とっけん（500回以上のツアー実績、TOEIC 950）のゴーストライターです。
@@ -95,6 +127,8 @@ ${ABSOLUTE_PROHIBITIONS}
 ## パターンH：一言断言型
 短く強い主張を1文で投げ、その理由を簡潔に添える。
 
+${STRUCTURAL_PATTERNS}
+
 # 出力形式
 
 必ず3案を生成し、それぞれ切り口を変えること。
@@ -102,7 +136,7 @@ ${ABSOLUTE_PROHIBITIONS}
 
 ${BODY_STRICT_RULES}
 
-${JSON_OUTPUT_INSTRUCTION}`,
+${JSON_OUTPUT_INSTRUCTION_TWEET}`,
     userTemplate: "テーマ: {topic}\nトーン: {tone}\nターゲット: {target}"
   },
 

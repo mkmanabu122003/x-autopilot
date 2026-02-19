@@ -215,7 +215,11 @@ class AIProvider {
           text: v.body || v.text || '',
           label: v.label || '',
           charCount: v.char_count || (v.body || v.text || '').length,
-          hashtags: []
+          hashtags: [],
+          openingPattern: v.opening_pattern || null,
+          developmentPattern: v.development_pattern || null,
+          closingPattern: v.closing_pattern || null,
+          expressions: v.expressions || []
         }));
       }
       return null;

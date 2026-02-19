@@ -44,6 +44,12 @@ jest.mock('../../server/services/analytics', () => ({
   getCompetitorContext: jest.fn().mockResolvedValue('')
 }));
 
+// Mock pattern-rotation
+jest.mock('../../server/services/pattern-rotation', () => ({
+  getPatternConstraintBlock: jest.fn().mockResolvedValue(''),
+  logPatternUsage: jest.fn().mockResolvedValue(undefined)
+}));
+
 // Mock cost-calculator
 jest.mock('../../server/services/cost-calculator', () => ({
   logDetailedUsage: jest.fn().mockResolvedValue(undefined),
