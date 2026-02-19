@@ -13,6 +13,7 @@ const batchRouter = require('../server/routes/batch');
 const autoPostRouter = require('../server/routes/auto-post');
 const growthRouter = require('../server/routes/growth');
 const cronRouter = require('../server/routes/cron');
+const logsRouter = require('../server/routes/logs');
 
 const basicAuth = require('../server/middleware/basicAuth');
 
@@ -34,6 +35,16 @@ app.use('/api/batch', batchRouter);
 app.use('/api/auto-post', autoPostRouter);
 app.use('/api/growth', growthRouter);
 app.use('/api/cron', cronRouter);
+app.use('/api/logs', logsRouter);
+
+// Global error handler for API routes - ensures JSON responses for all errors
+// Express identifies error handlers by having exactly 4 parameters (err, req, res, next)
+app.use('/api', (err, req, res, next) => {
+  console.error('Unhandled API error:', err.message);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error'
+  });
+});
 
 // Initialize database (async)
 let dbInitialized = false;
