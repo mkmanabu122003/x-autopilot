@@ -24,13 +24,18 @@ jest.mock('../../server/services/x-api', () => ({
 }));
 
 // Mock ai-provider
+const mockGenerateTweets = jest.fn().mockResolvedValue({
+  provider: 'claude',
+  model: 'claude-sonnet-4-20250514',
+  candidates: [
+    { text: 'テスト投稿1', label: 'テスト1', hashtags: [] },
+    { text: 'テスト投稿2', label: 'テスト2', hashtags: [] },
+    { text: 'テスト投稿3', label: 'テスト3', hashtags: [] },
+  ]
+});
 jest.mock('../../server/services/ai-provider', () => ({
   getAIProvider: jest.fn(() => ({
-    generateTweets: jest.fn().mockResolvedValue({
-      provider: 'claude',
-      model: 'claude-sonnet-4-20250514',
-      candidates: [{ text: 'テスト投稿', label: 'テスト', hashtags: [] }]
-    })
+    generateTweets: mockGenerateTweets
   })),
   AIProvider: jest.fn().mockImplementation(() => ({
     getTaskModelSettings: jest.fn().mockResolvedValue({ preferredProvider: 'claude' })
@@ -313,6 +318,37 @@ describe('auto-poster', () => {
       // my_posts への insert が呼ばれている（投稿 + ログ）
       const postInserts = insertCalls.filter(c => c.table === 'my_posts');
       expect(postInserts.length).toBeGreaterThanOrEqual(1);
+    });
+
+    test('新規ツイート posts_per_day=2 でも AI API は1回だけ呼ばれ、2件の下書きが作成される', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      mockGenerateTweets.mockClear();
+
+      const { updateCalls, insertCalls } = setupMockDb([{
+        id: 'setting-new-2',
+        account_id: 'account-1',
+        post_type: 'new',
+        enabled: true,
+        schedule_times: '20:50',
+        posts_per_day: 2,
+        schedule_mode: 'draft',
+        themes: 'AI',
+        last_run_date: null,
+        last_run_times: '',
+        x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+      }]);
+
+      await checkAndRunAutoPosts();
+
+      // 3候補/呼出なので、2件でも1回のAPI呼び出しで足りる
+      expect(mockGenerateTweets).toHaveBeenCalledTimes(1);
+      // 2件の下書きが作成される
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts).toHaveLength(2);
+      expect(postInserts[0].data.status).toBe('draft');
+      expect(postInserts[1].data.status).toBe('draft');
     });
 
     test('UTC 11:50 (= JST 20:50) で schedule_times "20:50" の引用RT設定が実行される', async () => {
