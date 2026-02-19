@@ -89,4 +89,47 @@ describe('prompts', () => {
       expect(system).toContain('パターン名やラベル');
     }
   );
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s にハッシュタグ禁止が含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('ハッシュタグは入れない');
+    }
+  );
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s でツアー回数が500回以上になっている',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('500回以上');
+      expect(system).not.toContain('516回');
+    }
+  );
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s にツアー回数の多用防止ルールが含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('5回に1回程度');
+    }
+  );
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s にパターンのランダム選択指示が含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('ランダム');
+    }
+  );
+
+  test('tweet_generation にコードフェンス禁止指示が含まれる', () => {
+    expect(prompts.tweet_generation.system).toContain('コードフェンス');
+  });
+
+  test('tweet_generation に8つ以上のパターンが定義されている', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('パターンA');
+    expect(system).toContain('パターンH');
+  });
 });
