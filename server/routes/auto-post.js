@@ -100,13 +100,23 @@ router.delete('/settings/:id', async (req, res) => {
 });
 
 // POST /api/auto-post/run/:id - Manually trigger auto post
+// Wraps the long-running operation in a race against a 100-second timeout
+// so that Vercel's maxDuration (120s) does not kill the function with a raw 504.
 router.post('/run/:id', async (req, res) => {
+  const ROUTE_TIMEOUT_MS = 100_000; // 100s — below Vercel's 120s limit
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('処理がタイムアウトしました。AI APIの応答に時間がかかっています。もう一度お試しください。')), ROUTE_TIMEOUT_MS)
+  );
   try {
-    const result = await runAutoPostManually(parseInt(req.params.id));
+    const result = await Promise.race([
+      runAutoPostManually(parseInt(req.params.id)),
+      timeoutPromise
+    ]);
     res.json(result);
   } catch (error) {
     console.error('Auto-post manual run error:', error);
-    res.status(500).json({
+    const status = error.message.includes('タイムアウト') ? 504 : 500;
+    res.status(status).json({
       error: error.message,
       details: error.stack ? error.stack.split('\n').slice(0, 3).join('\n') : undefined
     });

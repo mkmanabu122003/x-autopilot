@@ -10,10 +10,27 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-async function fetchWithRetry(url, options, { maxRetries = MAX_RETRIES, initialBackoffMs = INITIAL_BACKOFF_MS } = {}) {
+// Per-request timeout in ms.  Must finish before Vercel kills the function.
+const FETCH_TIMEOUT_MS = 55_000;
+
+async function fetchWithRetry(url, options, { maxRetries = MAX_RETRIES, initialBackoffMs = INITIAL_BACKOFF_MS, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
   let lastError;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const response = await fetch(url, options);
+    // AbortController ensures we fail fast rather than letting Vercel 504 us.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        throw new Error('AI APIの応答がタイムアウトしました。もう一度お試しください。');
+      }
+      throw err;
+    }
+    clearTimeout(timer);
+
     if (response.ok) return response;
 
     const errorBody = await response.json().catch(() => ({}));
@@ -259,7 +276,7 @@ class ClaudeProvider extends AIProvider {
     if (!this.isOpusModel(model)) return undefined;
 
     const ANALYSIS_TASKS = ['competitor_analysis', 'performance_summary'];
-    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 1024;
+    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 512;
 
     return {
       type: 'enabled',
