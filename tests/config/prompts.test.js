@@ -33,11 +33,11 @@ describe('prompts', () => {
     expect(prompts.quote_rt_generation.system).toContain('Anti-AI-Smell');
   });
 
-  test('reply_generation に禁止表現が定義されている', () => {
+  test('reply_generation に絶対禁止事項が定義されている', () => {
     const system = prompts.reply_generation.system;
-    expect(system).toContain('禁止表現');
-    expect(system).toContain('素晴らしい');
-    expect(system).toContain('なるほど');
+    expect(system).toContain('絶対禁止事項');
+    expect(system).toContain('プラットフォーム名');
+    expect(system).toContain('個人情報');
   });
 
   test('reply_generation にJSON出力形式が指定されている', () => {
@@ -50,19 +50,15 @@ describe('prompts', () => {
     expect(prompts.quote_rt_generation.system).toContain('JSON');
   });
 
-  test('tweet_generation に日本語280文字制限が含まれる', () => {
-    expect(prompts.tweet_generation.system).toContain('280文字');
-  });
-
   test('tweet_generation にAnti-AI-Smellルールが含まれる', () => {
     expect(prompts.tweet_generation.system).toContain('Anti-AI-Smell');
   });
 
-  test('tweet_generation に禁止表現が定義されている', () => {
+  test('tweet_generation に絶対禁止事項が定義されている', () => {
     const system = prompts.tweet_generation.system;
-    expect(system).toContain('禁止表現');
-    expect(system).toContain('素晴らしい');
-    expect(system).toContain('なるほど');
+    expect(system).toContain('絶対禁止事項');
+    expect(system).toContain('プラットフォーム名');
+    expect(system).toContain('個人情報');
   });
 
   test('tweet_generation にJSON出力形式が指定されている', () => {
@@ -132,4 +128,40 @@ describe('prompts', () => {
     expect(system).toContain('パターンA');
     expect(system).toContain('パターンH');
   });
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s にAnti-AI-Smell P1〜P6ルールが含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('記号残骸回避');
+      expect(system).toContain('リズム単調回避');
+      expect(system).toContain('保険表現回避');
+    }
+  );
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s にプラットフォーム名禁止が含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('GuruWalk');
+      expect(system).toContain('絶対に出さない');
+    }
+  );
+
+  test.each(['tweet_generation', 'quote_rt_generation'])(
+    '%s に体験→観察→結論の3パート構成が含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('3パート構成');
+    }
+  );
+
+  test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
+    '%s にとっけんのペルソナが含まれる',
+    (taskType) => {
+      const system = prompts[taskType].system;
+      expect(system).toContain('とっけん');
+      expect(system).toContain('通訳案内士');
+    }
+  );
 });
