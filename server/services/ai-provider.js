@@ -348,8 +348,8 @@ class ClaudeProvider extends AIProvider {
     if (thinkingConfig) {
       body.thinking = thinkingConfig;
       // Ensure max_tokens has ample room for BOTH thinking and text output.
-      // Use 16k total to prevent thinking from starving text generation.
-      const minTokens = (thinkingConfig.budget_tokens || 0) + Math.max(maxTokens, 2000);
+      // The JSON output with 3 variants + pattern metadata needs ~3000-4000 tokens.
+      const minTokens = (thinkingConfig.budget_tokens || 0) + Math.max(maxTokens, 4096);
       body.max_tokens = Math.max(body.max_tokens, minTokens);
     }
 
