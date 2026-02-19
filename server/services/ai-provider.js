@@ -190,10 +190,18 @@ class ClaudeProvider extends AIProvider {
     return model && model.includes('opus');
   }
 
-  getThinkingConfig(model) {
+  // Only enable thinking for analysis/summary tasks where deep reasoning helps.
+  // Content generation tasks (tweets, replies, quotes) don't benefit from thinking
+  // and it wastes the max_tokens budget, often producing 0 text output.
+  getThinkingConfig(model, taskType) {
     if (!this.isOpusModel(model)) return undefined;
+
+    const THINKING_TASKS = ['competitor_analysis', 'performance_summary'];
+    if (!THINKING_TASKS.includes(taskType)) return undefined;
+
     return {
-      type: 'adaptive'
+      type: 'enabled',
+      budget_tokens: 1024
     };
   }
 
@@ -239,10 +247,13 @@ class ClaudeProvider extends AIProvider {
       body.system = systemPrompt;
     }
 
-    // Apply thinking/effort config for Opus models
-    const thinkingConfig = this.getThinkingConfig(model);
+    // Apply thinking config for Opus models on analysis tasks only
+    const thinkingConfig = this.getThinkingConfig(model, taskType);
     if (thinkingConfig) {
       body.thinking = thinkingConfig;
+      // Ensure max_tokens is large enough for thinking budget + output
+      const minTokens = (thinkingConfig.budget_tokens || 0) + maxTokens;
+      body.max_tokens = Math.max(body.max_tokens, minTokens);
     }
 
     const headers = {

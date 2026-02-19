@@ -279,14 +279,26 @@ describe('ai-provider', () => {
       expect(provider.isOpusModel('claude-haiku-4-5-20251001')).toBe(false);
     });
 
-    test('Opus モデルには thinking 設定を返す', () => {
-      const config = provider.getThinkingConfig('claude-opus-4-6');
-      expect(config).toEqual({ type: 'adaptive' });
+    test('Opus モデル + 分析タスクには thinking 設定を返す', () => {
+      const config = provider.getThinkingConfig('claude-opus-4-6', 'competitor_analysis');
+      expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
     });
 
-    test('非 Opus モデルには thinking 設定を返さない', () => {
-      expect(provider.getThinkingConfig('claude-sonnet-4-20250514')).toBeUndefined();
-      expect(provider.getThinkingConfig('claude-haiku-4-5-20251001')).toBeUndefined();
+    test('Opus モデル + サマリータスクには thinking 設定を返す', () => {
+      const config = provider.getThinkingConfig('claude-opus-4-6', 'performance_summary');
+      expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
+    });
+
+    test('Opus モデルでもツイート生成タスクには thinking を返さない', () => {
+      expect(provider.getThinkingConfig('claude-opus-4-6', 'tweet_generation')).toBeUndefined();
+      expect(provider.getThinkingConfig('claude-opus-4-6', 'reply_generation')).toBeUndefined();
+      expect(provider.getThinkingConfig('claude-opus-4-6', 'quote_rt_generation')).toBeUndefined();
+      expect(provider.getThinkingConfig('claude-opus-4-6', 'comment_generation')).toBeUndefined();
+    });
+
+    test('非 Opus モデルにはどのタスクでも thinking 設定を返さない', () => {
+      expect(provider.getThinkingConfig('claude-sonnet-4-20250514', 'competitor_analysis')).toBeUndefined();
+      expect(provider.getThinkingConfig('claude-haiku-4-5-20251001', 'tweet_generation')).toBeUndefined();
     });
 
     test('null/undefined モデルでも isOpusModel がエラーにならない', () => {
