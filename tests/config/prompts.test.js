@@ -66,10 +66,10 @@ describe('prompts', () => {
     expect(prompts.tweet_generation.system).toContain('JSON');
   });
 
-  test('tweet_generation に河原学のペルソナ情報が含まれる', () => {
+  test('tweet_generation にとっけんのペルソナ情報が含まれる', () => {
     const system = prompts.tweet_generation.system;
     expect(system).toContain('通訳案内士');
-    expect(system).toContain('河原学');
+    expect(system).toContain('とっけん');
   });
 
   test('comment_generation に140文字制限が含まれる', () => {
@@ -157,10 +157,10 @@ describe('prompts', () => {
   );
 
   test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
-    '%s に河原学のペルソナが含まれる',
+    '%s にとっけんのペルソナが含まれる',
     (taskType) => {
       const system = prompts[taskType].system;
-      expect(system).toContain('河原学');
+      expect(system).toContain('とっけん');
       expect(system).toContain('通訳案内士');
     }
   );
