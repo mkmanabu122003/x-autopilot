@@ -182,6 +182,46 @@ describe('ai-provider', () => {
       const result = provider.parseCandidates(text);
       expect(result[0].text).toBe('代替テキスト');
     });
+
+    test('markdownコードフェンス付きJSONをパースする', () => {
+      const text = '```json\n{"variants":[{"label":"共感型","body":"コードフェンス内のツイート","char_count":13}]}\n```';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(1);
+      expect(result[0].text).toBe('コードフェンス内のツイート');
+      expect(result[0].label).toBe('共感型');
+    });
+
+    test('```json がインラインのコードフェンスでもパースする', () => {
+      const text = '```json{"variants":[{"label":"テスト","body":"インラインフェンス","char_count":9}]}```';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(1);
+      expect(result[0].text).toBe('インラインフェンス');
+    });
+
+    test('body内の改行（\\n）を正しく保持する', () => {
+      const text = '{"variants":[{"label":"共感型","body":"一行目\\n\\n二行目\\n三行目","char_count":12}]}';
+      const result = provider.parseCandidates(text);
+      expect(result[0].text).toBe('一行目\n\n二行目\n三行目');
+    });
+
+    test('JSONパース失敗時にbodyの値をregexで抽出する', () => {
+      // Simulate near-valid JSON with a subtle issue that breaks JSON.parse
+      // but has extractable body values
+      const text = '{"variants":[{"label":"共感型","body":"正規表現で抽出されるテキスト"},]}';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(1);
+      expect(result[0].text).toBe('正規表現で抽出されるテキスト');
+    });
+
+    test('複数のbodyをregexフォールバックで抽出する', () => {
+      // Trailing comma after last element (invalid JSON but common AI output)
+      const text = '{"variants":[{"label":"A","body":"テキスト1"},{"label":"B","body":"テキスト2"},{"label":"C","body":"テキスト3"},]}';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(3);
+      expect(result[0].text).toBe('テキスト1');
+      expect(result[1].text).toBe('テキスト2');
+      expect(result[2].text).toBe('テキスト3');
+    });
   });
 
   describe('fetchWithRetry', () => {

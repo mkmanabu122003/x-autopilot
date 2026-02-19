@@ -149,26 +149,49 @@ class AIProvider {
     }
   }
 
+  /**
+   * Extract variants from AI response text.
+   * Handles: markdown code fences, literal newlines in JSON strings,
+   * and plain text fallback.
+   */
   parseCandidates(text) {
-    // Try JSON format first (variants array with label/body)
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*"variants"[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed.variants && Array.isArray(parsed.variants) && parsed.variants.length > 0) {
-          return parsed.variants.slice(0, 3).map(v => ({
-            text: v.body || v.text || '',
-            label: v.label || '',
-            charCount: v.char_count || (v.body || v.text || '').length,
-            hashtags: []
-          }));
-        }
-      }
-    } catch (e) {
-      // JSON parse failed, fall back to text parsing
+    // Step 1: Strip markdown code fences (```json ... ``` or ``` ... ```)
+    let cleaned = text.replace(/```(?:json)?\s*/gi, '').replace(/```/g, '').trim();
+
+    // Step 2: Try JSON parse
+    const variants = this._tryParseVariantsJson(cleaned);
+    if (variants) return variants;
+
+    // Step 3: If the original text (before stripping) also fails, try fixing
+    // literal newlines inside JSON string values
+    const fixedNewlines = cleaned.replace(/"([^"]*)\n([^"]*)"/g, (match) => {
+      return match.replace(/\n/g, '\\n');
+    });
+    const variantsFixed = this._tryParseVariantsJson(fixedNewlines);
+    if (variantsFixed) return variantsFixed;
+
+    // Step 4: Regex extraction of "body" values from near-valid JSON
+    const bodyRegex = /"body"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+    const labelRegex = /"label"\s*:\s*"((?:[^"\\]|\\.)*)"/g;
+    const bodies = [];
+    const labels = [];
+    let m;
+    while ((m = bodyRegex.exec(cleaned)) !== null) {
+      bodies.push(m[1].replace(/\\n/g, '\n').replace(/\\"/g, '"'));
+    }
+    while ((m = labelRegex.exec(cleaned)) !== null) {
+      labels.push(m[1]);
+    }
+    if (bodies.length > 0) {
+      return bodies.slice(0, 3).map((body, i) => ({
+        text: body,
+        label: labels[i] || '',
+        charCount: body.length,
+        hashtags: []
+      }));
     }
 
-    // Fallback: split by numbered patterns
+    // Step 5: Fallback - split by numbered patterns
     const candidates = [];
     const patterns = text.split(/(?:^|\n)(?:\d+[\.\)]\s*|パターン\d+[:：]\s*)/);
     for (const pattern of patterns) {
@@ -182,6 +205,40 @@ class AIProvider {
       candidates.push({ text: text.trim(), label: '', hashtags: [] });
     }
     return candidates.slice(0, 3);
+  }
+
+  /** Try to parse a JSON string containing a "variants" array. */
+  _tryParseVariantsJson(text) {
+    const _extractVariants = (parsed) => {
+      if (parsed.variants && Array.isArray(parsed.variants) && parsed.variants.length > 0) {
+        return parsed.variants.slice(0, 3).map(v => ({
+          text: v.body || v.text || '',
+          label: v.label || '',
+          charCount: v.char_count || (v.body || v.text || '').length,
+          hashtags: []
+        }));
+      }
+      return null;
+    };
+
+    // Try 1: parse the whole text as JSON directly
+    try {
+      const parsed = JSON.parse(text);
+      const result = _extractVariants(parsed);
+      if (result) return result;
+    } catch (e) { /* continue */ }
+
+    // Try 2: extract JSON object via regex (handles surrounding text)
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*"variants"[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        const result = _extractVariants(parsed);
+        if (result) return result;
+      }
+    } catch (e) { /* continue */ }
+
+    return null;
   }
 }
 
