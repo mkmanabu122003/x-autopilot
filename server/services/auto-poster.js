@@ -192,7 +192,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   let drafts = 0;
   const errors = [];
 
-  // Get pattern rotation constraints before generation loop
+  // Fetch shared data once before generation
   let patternConstraintBlock = '';
   try {
     patternConstraintBlock = await getPatternConstraintBlock(accountId);
@@ -200,33 +200,53 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
     // Non-critical: continue without constraints
   }
 
+  let competitorContext = '';
+  try {
+    competitorContext = await getCompetitorContext(accountId);
+  } catch (e) {
+    // Non-critical
+  }
+
+  // Build generation promises for all tweets in parallel to avoid 504 timeouts.
+  // AI API calls are the bottleneck (~15-30s each), so parallelising them
+  // cuts total time from N*T to ~T.
+  const genPromises = [];
   for (let i = 0; i < count; i++) {
+    const theme = themes[i % themes.length];
+    const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
+    const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${patternConstraintBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
+
+    const genOptions = {
+      postType: 'new',
+      accountId,
+      includeCompetitorContext: true,
+      competitorContext,
+      customPrompt: userPrompt
+    };
+    if (setting.ai_model) genOptions.model = setting.ai_model;
+    if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
+
+    genPromises.push(
+      provider.generateTweets(theme, genOptions).catch(err => {
+        console.error(`AutoPoster: failed to generate new tweet ${i + 1}:`, err.message);
+        logError('auto_post', `新規ツイート生成 ${i + 1} に失敗`, { accountId, error: err.message });
+        return { error: err.message };
+      })
+    );
+  }
+
+  // Wait for all AI generations to complete in parallel
+  const genResults = await Promise.all(genPromises);
+
+  // Process results sequentially (DB writes are fast)
+  for (let i = 0; i < genResults.length; i++) {
     try {
-      // Pick a theme (cycle through available themes)
-      const theme = themes[i % themes.length];
+      const result = genResults[i];
 
-      // Include competitor context for better content
-      let competitorContext = '';
-      try {
-        competitorContext = await getCompetitorContext(accountId);
-      } catch (e) {
-        // Non-critical
+      if (result.error) {
+        errors.push(result.error);
+        continue;
       }
-
-      const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
-      const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${patternConstraintBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
-
-      const genOptions = {
-        postType: 'new',
-        accountId,
-        includeCompetitorContext: true,
-        competitorContext,
-        customPrompt: userPrompt
-      };
-      if (setting.ai_model) genOptions.model = setting.ai_model;
-      if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
-
-      const result = await provider.generateTweets(theme, genOptions);
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
@@ -298,8 +318,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         scheduled++;
       }
     } catch (err) {
-      console.error(`AutoPoster: failed to generate/post new tweet ${i + 1}:`, err.message);
-      logError('auto_post', `新規ツイート生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
+      console.error(`AutoPoster: failed to process new tweet ${i + 1}:`, err.message);
+      logError('auto_post', `新規ツイート処理 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
       errors.push(err.message);
     }
   }
