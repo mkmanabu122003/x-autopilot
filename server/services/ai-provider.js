@@ -216,10 +216,16 @@ class AIProvider {
       if (!trimmed) continue;
       trimmed = trimmed.replace(/^[「『""]|[」』""]$/g, '').trim();
       if (!trimmed) continue;
+      // Reject text that looks like truncated/raw JSON — not a usable tweet
+      if (/^\s*[\[{]/.test(trimmed) && /"(?:variants|body|label)"/.test(trimmed)) continue;
       candidates.push({ text: trimmed, label: '', hashtags: [] });
     }
     if (candidates.length === 0 && text.trim()) {
-      candidates.push({ text: text.trim(), label: '', hashtags: [] });
+      // Final fallback: only use raw text if it doesn't look like JSON
+      const raw = text.trim();
+      if (!/^\s*[\[{]/.test(raw) || !/"(?:variants|body|label)"/.test(raw)) {
+        candidates.push({ text: raw, label: '', hashtags: [] });
+      }
     }
     return candidates.slice(0, 3);
   }

@@ -222,6 +222,21 @@ describe('ai-provider', () => {
       expect(result[1].text).toBe('テキスト2');
       expect(result[2].text).toBe('テキスト3');
     });
+
+    test('切り詰められたJSONは候補として返さない（空配列になる）', () => {
+      // Simulates max_tokens truncation - JSON is incomplete, no "body" value extractable
+      const text = '{"variants":[{"label":"過去の自分との対比で、スピーキングの壁が英語力ではなく沈黙耐性に';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(0);
+    });
+
+    test('bodyが抽出可能な部分的JSONは正しく候補を返す', () => {
+      // JSON is truncated but at least one "body" value is complete
+      const text = '{"variants":[{"label":"共感型","body":"完成したツイート"},{"label":"切れたラベ';
+      const result = provider.parseCandidates(text);
+      expect(result).toHaveLength(1);
+      expect(result[0].text).toBe('完成したツイート');
+    });
   });
 
   describe('fetchWithRetry', () => {
