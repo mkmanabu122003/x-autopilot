@@ -6,6 +6,78 @@ const { logError, logInfo } = require('./app-logger');
 const { getPatternConstraintBlock, logPatternUsage } = require('./pattern-rotation');
 
 /**
+ * Fetch enabled theme categories for an account.
+ */
+async function getThemeCategories(accountId) {
+  try {
+    const sb = getDb();
+    const { data, error } = await sb.from('theme_categories')
+      .select('code, name, description')
+      .eq('account_id', accountId)
+      .eq('enabled', true)
+      .order('sort_order');
+    if (error) return [];
+    return data || [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get recently used theme category codes from the last N posts.
+ */
+async function getRecentThemeCategories(accountId, limit = 3) {
+  try {
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts')
+      .select('theme_category')
+      .eq('account_id', accountId)
+      .eq('post_type', 'new')
+      .not('theme_category', 'is', null)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error) return [];
+    return (data || []).map(d => d.theme_category).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Pick a theme category that hasn't been used in the last 3 posts.
+ * Returns null if no categories are configured.
+ */
+function pickAvailableCategory(categories, recentCodes) {
+  if (categories.length === 0) return null;
+  const recentSet = new Set(recentCodes);
+  const available = categories.filter(c => !recentSet.has(c.code));
+  // Fallback: if all forbidden (e.g. fewer categories than constraint window), allow all
+  const pool = available.length > 0 ? available : categories;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+/**
+ * Build a theme category constraint block for the AI prompt.
+ */
+function buildCategoryConstraintBlock(categories, recentCodes, selectedCategory) {
+  if (!selectedCategory) return '';
+  const parts = [];
+  parts.push(`\n## テーマカテゴリ指定（必ず守ること）`);
+  parts.push(`今回のテーマカテゴリ: ${selectedCategory.code}（${selectedCategory.name}）`);
+  if (selectedCategory.description) {
+    parts.push(`カテゴリ説明: ${selectedCategory.description}`);
+  }
+  if (recentCodes.length > 0) {
+    const recentNames = recentCodes.map(code => {
+      const cat = categories.find(c => c.code === code);
+      return cat ? `${code}（${cat.name}）` : code;
+    });
+    parts.push(`直近${recentCodes.length}件で使用済み: ${recentNames.join(', ')} → これらとは異なる切り口で書くこと`);
+  }
+  return parts.join('\n');
+}
+
+/**
  * Auto-poster service: generates and schedules/posts content automatically
  * based on auto_post_settings configuration.
  *
@@ -210,6 +282,12 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
     // Non-critical
   }
 
+  // Theme category rotation: pick a category not used in recent 3 posts
+  const themeCategories = await getThemeCategories(accountId);
+  const recentCategoryCodes = await getRecentThemeCategories(accountId, 3);
+  const selectedCategory = pickAvailableCategory(themeCategories, recentCategoryCodes);
+  const categoryBlock = buildCategoryConstraintBlock(themeCategories, recentCategoryCodes, selectedCategory);
+
   // Each AI call returns 3 candidates, so we only need ceil(count/3) calls.
   // This drastically reduces API calls and avoids timeouts.
   const CANDIDATES_PER_CALL = 3;
@@ -219,7 +297,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   for (let i = 0; i < numCalls; i++) {
     const theme = themes[i % themes.length];
     const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
-    const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${patternConstraintBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
+    const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${categoryBlock}${patternConstraintBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
     const genOptions = {
       postType: 'new',
@@ -294,6 +372,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         }
       }
 
+      const categoryCode = selectedCategory ? selectedCategory.code : null;
+
       if (forcePreview) {
         // Save as draft for user review
         await sb.from('my_posts').insert({
@@ -302,7 +382,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
           post_type: 'new',
           status: 'draft',
           ai_provider: aiProvider,
-          ai_model: aiModel
+          ai_model: aiModel,
+          theme_category: categoryCode
         });
         drafts++;
       } else if (setting.schedule_mode === 'immediate') {
@@ -316,7 +397,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
           status: 'posted',
           posted_at: new Date().toISOString(),
           ai_provider: aiProvider,
-          ai_model: aiModel
+          ai_model: aiModel,
+          theme_category: categoryCode
         });
         posted++;
       } else {
@@ -329,7 +411,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
           status: 'scheduled',
           scheduled_at: scheduledAt.toISOString(),
           ai_provider: aiProvider,
-          ai_model: aiModel
+          ai_model: aiModel,
+          theme_category: categoryCode
         });
         scheduled++;
       }
@@ -678,6 +761,8 @@ module.exports = {
   isTimeInWindow,
   getJSTNow,
   buildStyleInstruction,
+  pickAvailableCategory,
+  buildCategoryConstraintBlock,
   SCHEDULE_WINDOW_MINUTES,
   JST_OFFSET_HOURS
 };

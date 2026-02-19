@@ -61,7 +61,7 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
-const { logAutoPostExecution, isTimeInWindow, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
+const { logAutoPostExecution, isTimeInWindow, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, pickAvailableCategory, buildCategoryConstraintBlock, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
 const { getReplySuggestions } = require('../../server/services/analytics');
 
@@ -628,6 +628,75 @@ describe('auto-poster', () => {
           error_message: 'テーマが設定されていません'
         })
       );
+    });
+  });
+
+  describe('pickAvailableCategory', () => {
+    const categories = [
+      { code: 'T-A', name: '英語・スピーキング' },
+      { code: 'T-B', name: 'ゲスト観察' },
+      { code: 'T-C', name: 'ルート設計' },
+      { code: 'T-D', name: '文化翻訳' },
+      { code: 'T-E', name: 'ガイドビジネス' },
+      { code: 'T-F', name: '浅草・東京の変化' },
+    ];
+
+    test('直近3件で使用されたカテゴリを除外して選択する', () => {
+      const recent = ['T-A', 'T-B', 'T-C'];
+      const result = pickAvailableCategory(categories, recent);
+      expect(result).not.toBeNull();
+      expect(['T-D', 'T-E', 'T-F']).toContain(result.code);
+    });
+
+    test('カテゴリが空なら null を返す', () => {
+      const result = pickAvailableCategory([], ['T-A']);
+      expect(result).toBeNull();
+    });
+
+    test('全カテゴリが制約対象の場合はフォールバックで全候補から選択する', () => {
+      const smallCategories = [
+        { code: 'T-A', name: '英語' },
+        { code: 'T-B', name: 'ゲスト観察' },
+      ];
+      const recent = ['T-A', 'T-B'];
+      const result = pickAvailableCategory(smallCategories, recent);
+      expect(result).not.toBeNull();
+      expect(['T-A', 'T-B']).toContain(result.code);
+    });
+
+    test('直近の使用履歴が空なら全候補から選択する', () => {
+      const result = pickAvailableCategory(categories, []);
+      expect(result).not.toBeNull();
+      expect(categories.map(c => c.code)).toContain(result.code);
+    });
+  });
+
+  describe('buildCategoryConstraintBlock', () => {
+    const categories = [
+      { code: 'T-A', name: '英語・スピーキング', description: '英語力に関する話題' },
+      { code: 'T-B', name: 'ゲスト観察', description: '' },
+    ];
+
+    test('選択カテゴリがない場合は空文字を返す', () => {
+      const result = buildCategoryConstraintBlock(categories, [], null);
+      expect(result).toBe('');
+    });
+
+    test('カテゴリが選択されている場合はプロンプトブロックを返す', () => {
+      const selected = { code: 'T-A', name: '英語・スピーキング', description: '英語力に関する話題' };
+      const result = buildCategoryConstraintBlock(categories, ['T-B'], selected);
+      expect(result).toContain('テーマカテゴリ指定');
+      expect(result).toContain('T-A（英語・スピーキング）');
+      expect(result).toContain('英語力に関する話題');
+      expect(result).toContain('T-B（ゲスト観察）');
+      expect(result).toContain('異なる切り口');
+    });
+
+    test('直近使用履歴が空でも選択カテゴリの指定は含む', () => {
+      const selected = { code: 'T-B', name: 'ゲスト観察', description: '' };
+      const result = buildCategoryConstraintBlock(categories, [], selected);
+      expect(result).toContain('T-B（ゲスト観察）');
+      expect(result).not.toContain('使用済み');
     });
   });
 });
