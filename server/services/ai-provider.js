@@ -247,18 +247,19 @@ class ClaudeProvider extends AIProvider {
     return model && model.includes('opus');
   }
 
-  // Only enable thinking for analysis/summary tasks where deep reasoning helps.
-  // Content generation tasks (tweets, replies, quotes) don't benefit from thinking
-  // and it wastes the max_tokens budget, often producing 0 text output.
+  // Opus 4+ models have thinking enabled by default.
+  // If we don't explicitly set a budget, the API auto-allocates thinking tokens
+  // which can consume the entire max_tokens budget and leave 0 tokens for output.
+  // Always return a thinking config for Opus models with an appropriate budget.
   getThinkingConfig(model, taskType) {
     if (!this.isOpusModel(model)) return undefined;
 
-    const THINKING_TASKS = ['competitor_analysis', 'performance_summary'];
-    if (!THINKING_TASKS.includes(taskType)) return undefined;
+    const ANALYSIS_TASKS = ['competitor_analysis', 'performance_summary'];
+    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 1024;
 
     return {
       type: 'enabled',
-      budget_tokens: 1024
+      budget_tokens: budgetTokens
     };
   }
 
@@ -330,7 +331,14 @@ class ClaudeProvider extends AIProvider {
       body: JSON.stringify(body)
     });
 
-    const data = await response.json();
+    // Parse response as text first to handle non-JSON error responses gracefully
+    const responseBody = await response.text();
+    let data;
+    try {
+      data = JSON.parse(responseBody);
+    } catch (parseErr) {
+      throw new Error(`Claude API returned invalid JSON: ${responseBody.slice(0, 200)}`);
+    }
 
     // Check for API-level errors in the response body
     if (data.type === 'error' || data.error) {

@@ -319,21 +319,22 @@ describe('ai-provider', () => {
       expect(provider.isOpusModel('claude-haiku-4-5-20251001')).toBe(false);
     });
 
-    test('Opus モデル + 分析タスクには thinking 設定を返す', () => {
+    test('Opus モデル + 分析タスクには大きい thinking budget を返す', () => {
       const config = provider.getThinkingConfig('claude-opus-4-6', 'competitor_analysis');
-      expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
+      expect(config).toEqual({ type: 'enabled', budget_tokens: 2048 });
     });
 
-    test('Opus モデル + サマリータスクには thinking 設定を返す', () => {
+    test('Opus モデル + サマリータスクには大きい thinking budget を返す', () => {
       const config = provider.getThinkingConfig('claude-opus-4-6', 'performance_summary');
-      expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
+      expect(config).toEqual({ type: 'enabled', budget_tokens: 2048 });
     });
 
-    test('Opus モデルでもツイート生成タスクには thinking を返さない', () => {
-      expect(provider.getThinkingConfig('claude-opus-4-6', 'tweet_generation')).toBeUndefined();
-      expect(provider.getThinkingConfig('claude-opus-4-6', 'reply_generation')).toBeUndefined();
-      expect(provider.getThinkingConfig('claude-opus-4-6', 'quote_rt_generation')).toBeUndefined();
-      expect(provider.getThinkingConfig('claude-opus-4-6', 'comment_generation')).toBeUndefined();
+    test('Opus モデル + コンテンツ生成タスクには小さい thinking budget を返す', () => {
+      const tasks = ['tweet_generation', 'reply_generation', 'quote_rt_generation', 'comment_generation'];
+      for (const task of tasks) {
+        const config = provider.getThinkingConfig('claude-opus-4-6', task);
+        expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
+      }
     });
 
     test('非 Opus モデルにはどのタスクでも thinking 設定を返さない', () => {
