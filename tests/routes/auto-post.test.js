@@ -237,7 +237,7 @@ describe('auto-post routes', () => {
       );
     });
 
-    test('スタイル設定が未指定の場合は空文字で保存される', async () => {
+    test('スタイル設定が未指定の場合は空文字/0で保存される', async () => {
       mockSingle.mockResolvedValueOnce({ data: { id: 3 }, error: null });
       mockUpsert.mockImplementationOnce(() => ({ ...mockChain, select: () => ({ single: mockSingle }) }));
 
@@ -254,6 +254,34 @@ describe('auto-post routes', () => {
           tone: '',
           target_audience: '',
           style_note: '',
+          ai_model: '',
+          max_length: 0,
+        }),
+        expect.anything()
+      );
+    });
+
+    test('AIモデルと文字数上限を保存できる', async () => {
+      mockSingle.mockResolvedValueOnce({ data: { id: 4 }, error: null });
+      mockUpsert.mockImplementationOnce(() => ({ ...mockChain, select: () => ({ single: mockSingle }) }));
+
+      const app = createApp();
+      const res = await request(app).put('/api/auto-post/settings').send({
+        accountId: 1,
+        postType: 'new',
+        enabled: true,
+        postsPerDay: 3,
+        scheduleTimes: '09:00',
+        aiModel: 'claude-opus-4-6',
+        maxLength: 200,
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ai_model: 'claude-opus-4-6',
+          max_length: 200,
         }),
         expect.anything()
       );

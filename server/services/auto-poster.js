@@ -121,7 +121,13 @@ async function checkAndRunAutoPosts() {
   }
 }
 
-async function resolveProvider(postType, accountDefault) {
+async function resolveProvider(postType, accountDefault, settingModel) {
+  // If the user picked a model in auto-post settings, infer provider from it
+  if (settingModel) {
+    if (settingModel.startsWith('claude')) return 'claude';
+    if (settingModel.startsWith('gemini')) return 'gemini';
+  }
+
   // Priority: task-level preferred_provider > account default > 'claude'
   const taskTypeMap = { new: 'tweet_generation', reply: 'reply_generation', quote: 'quote_rt_generation' };
   const taskType = taskTypeMap[postType] || 'tweet_generation';
@@ -141,7 +147,8 @@ async function resolveProvider(postType, accountDefault) {
 
 async function executeAutoPost(setting, count, currentTime, { forcePreview = false } = {}) {
   const accountDefault = setting.x_accounts?.default_ai_provider || 'claude';
-  const providerName = await resolveProvider(setting.post_type, accountDefault);
+  const settingModel = setting.ai_model || '';
+  const providerName = await resolveProvider(setting.post_type, accountDefault, settingModel);
   const provider = getAIProvider(providerName);
 
   switch (setting.post_type) {
@@ -197,15 +204,20 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         // Non-critical
       }
 
-      const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈は含めないこと。`;
+      const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
+      const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
-      const result = await provider.generateTweets(theme, {
+      const genOptions = {
         postType: 'new',
         accountId,
         includeCompetitorContext: true,
         competitorContext,
         customPrompt: userPrompt
-      });
+      };
+      if (setting.ai_model) genOptions.model = setting.ai_model;
+      if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
+
+      const result = await provider.generateTweets(theme, genOptions);
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
@@ -306,21 +318,26 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
     try {
       const target = suggestions[i];
 
+      const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
       const replyPrompt = `以下の元ツイートに対するリプライを3パターン作成してください。
 
 # 元ツイート
 投稿者：@${target.handle}
 内容：
 ${target.text}
-${styleInstruction}
+${styleInstruction}${maxLenNote}
 
-bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈は含めないこと。`;
+bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
-      const result = await provider.generateTweets(target.text, {
+      const genOptions = {
         postType: 'reply',
         accountId,
         customPrompt: replyPrompt
-      });
+      };
+      if (setting.ai_model) genOptions.model = setting.ai_model;
+      if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
+
+      const result = await provider.generateTweets(target.text, genOptions);
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
@@ -423,21 +440,26 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
     try {
       const target = suggestions[i];
 
+      const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
       const quotePrompt = `以下の元ツイートに対する引用リツイートを3パターン作成してください。
 
 # 元ツイート
 投稿者：@${target.handle}
 内容：
 ${target.text}
-${styleInstruction}
+${styleInstruction}${maxLenNote}
 
-bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈は含めないこと。`;
+bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
-      const result = await provider.generateTweets(target.text, {
+      const genOptions = {
         postType: 'quote',
         accountId,
         customPrompt: quotePrompt
-      });
+      };
+      if (setting.ai_model) genOptions.model = setting.ai_model;
+      if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
+
+      const result = await provider.generateTweets(target.text, genOptions);
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;

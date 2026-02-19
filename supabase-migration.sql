@@ -251,6 +251,8 @@ CREATE TABLE IF NOT EXISTS auto_post_settings (
   tone TEXT DEFAULT '',
   target_audience TEXT DEFAULT '',
   style_note TEXT DEFAULT '',
+  ai_model TEXT DEFAULT '',
+  max_length INTEGER DEFAULT 0,
   last_run_date TEXT,
   last_run_times TEXT DEFAULT '',
   updated_at TIMESTAMPTZ DEFAULT NOW(),
@@ -304,3 +306,5 @@ CREATE INDEX IF NOT EXISTS idx_app_logs_category ON app_logs(category);
 ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS tone TEXT DEFAULT '';
 ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS target_audience TEXT DEFAULT '';
 ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS style_note TEXT DEFAULT '';
+ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS ai_model TEXT DEFAULT '';
+ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS max_length INTEGER DEFAULT 0;

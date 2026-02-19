@@ -3,6 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { useAPI } from '../hooks/useAPI';
 import { useAccount } from '../contexts/AccountContext';
 
+const AI_MODELS = [
+  { id: '', label: 'デフォルト（タスク設定に従う）' },
+  { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+  { id: 'claude-sonnet-4-5-20250929', label: 'Claude Sonnet 4.5' },
+  { id: 'claude-sonnet-4-20250514', label: 'Claude Sonnet 4' },
+  { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro' },
+  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash' },
+  { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash' },
+];
+
 const POST_TYPE_CONFIG = {
   new: {
     label: '新規ツイート',
@@ -86,6 +97,8 @@ export default function AutoPost() {
           tone: s.tone || '',
           targetAudience: s.target_audience || '',
           styleNote: s.style_note || '',
+          aiModel: s.ai_model || '',
+          maxLength: s.max_length || 0,
           lastRunDate: s.last_run_date,
           lastRunTimes: s.last_run_times,
         };
@@ -125,6 +138,8 @@ export default function AutoPost() {
     tone: '',
     targetAudience: '',
     styleNote: '',
+    aiModel: '',
+    maxLength: 0,
   });
 
   const getSetting = (postType) => settings[postType] || getDefault(postType);
@@ -157,6 +172,8 @@ export default function AutoPost() {
         tone: s.tone,
         targetAudience: s.targetAudience,
         styleNote: s.styleNote,
+        aiModel: s.aiModel,
+        maxLength: s.maxLength,
       });
       await loadSettings();
     } catch (e) {
@@ -182,6 +199,8 @@ export default function AutoPost() {
         tone: s.tone,
         targetAudience: s.targetAudience,
         styleNote: s.styleNote,
+        aiModel: s.aiModel,
+        maxLength: s.maxLength,
       });
       setSaved(postType);
       setTimeout(() => setSaved(false), 2000);
@@ -432,6 +451,42 @@ export default function AutoPost() {
                       rows={2}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm resize-y"
                     />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* AI Model */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">AIモデル</label>
+                      <select
+                        value={s.aiModel}
+                        onChange={(e) => updateSetting(postType, 'aiModel', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      >
+                        {AI_MODELS.map(m => (
+                          <option key={m.id} value={m.id}>{m.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Max length */}
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">
+                        文字数上限 {s.maxLength > 0 ? `(${s.maxLength}文字)` : '(デフォルト)'}
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={500}
+                        step={10}
+                        value={s.maxLength || ''}
+                        onChange={(e) => updateSetting(postType, 'maxLength', parseInt(e.target.value) || 0)}
+                        placeholder="0 = デフォルト"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                      />
+                      <p className="text-xs text-gray-400 mt-1">
+                        0の場合はプロンプトのデフォルト値を使用
+                      </p>
+                    </div>
                   </div>
 
                   {/* Last run info */}
