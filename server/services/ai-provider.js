@@ -267,6 +267,17 @@ class ClaudeProvider extends AIProvider {
     };
   }
 
+  /**
+   * Detect if the response only contains thinking blocks with no text output.
+   * This happens when the model exhausts max_tokens on thinking.
+   */
+  isThinkingOnlyResponse(data) {
+    if (!Array.isArray(data.content)) return false;
+    const hasThinking = data.content.some(b => b.type === 'thinking');
+    const hasText = data.content.some(b => b.type === 'text' && b.text && b.text.trim());
+    return hasThinking && !hasText;
+  }
+
   async generateTweets(theme, options = {}) {
     if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY environment variable is not set');
 
@@ -309,12 +320,13 @@ class ClaudeProvider extends AIProvider {
       body.system = systemPrompt;
     }
 
-    // Apply thinking config for Opus models on analysis tasks only
+    // Apply thinking config for Opus models
     const thinkingConfig = this.getThinkingConfig(model, taskType);
     if (thinkingConfig) {
       body.thinking = thinkingConfig;
-      // Ensure max_tokens is large enough for thinking budget + output
-      const minTokens = (thinkingConfig.budget_tokens || 0) + maxTokens;
+      // Ensure max_tokens has ample room for BOTH thinking and text output.
+      // Use 16k total to prevent thinking from starving text generation.
+      const minTokens = (thinkingConfig.budget_tokens || 0) + Math.max(maxTokens, 2000);
       body.max_tokens = Math.max(body.max_tokens, minTokens);
     }
 
@@ -329,25 +341,16 @@ class ClaudeProvider extends AIProvider {
       headers['anthropic-beta'] = 'prompt-caching-2024-07-31';
     }
 
-    const response = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body)
-    });
+    let data = await this._callClaudeAPI(headers, body);
 
-    // Parse response as text first to handle non-JSON error responses gracefully
-    const responseBody = await response.text();
-    let data;
-    try {
-      data = JSON.parse(responseBody);
-    } catch (parseErr) {
-      throw new Error(`Claude API returned invalid JSON: ${responseBody.slice(0, 200)}`);
-    }
-
-    // Check for API-level errors in the response body
-    if (data.type === 'error' || data.error) {
-      const errMsg = data.error?.message || JSON.stringify(data.error) || 'Unknown API error';
-      throw new Error(`Claude API error: ${errMsg}`);
+    // If the model exhausted max_tokens on thinking with no text output,
+    // retry once with thinking disabled to guarantee text generation.
+    if (thinkingConfig && this.isThinkingOnlyResponse(data)) {
+      console.warn('ClaudeProvider: thinking-only response detected (no text output). Retrying without thinking.');
+      const retryBody = { ...body };
+      delete retryBody.thinking;
+      retryBody.max_tokens = maxTokens;
+      data = await this._callClaudeAPI(headers, retryBody);
     }
 
     // Log detailed usage
@@ -403,6 +406,34 @@ class ClaudeProvider extends AIProvider {
       candidates,
       debugInfo
     };
+  }
+
+  /**
+   * Make a single Claude API call and parse/validate the response.
+   */
+  async _callClaudeAPI(headers, body) {
+    const response = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    // Parse response as text first to handle non-JSON error responses gracefully
+    const responseBody = await response.text();
+    let data;
+    try {
+      data = JSON.parse(responseBody);
+    } catch (parseErr) {
+      throw new Error(`Claude API returned invalid JSON: ${responseBody.slice(0, 200)}`);
+    }
+
+    // Check for API-level errors in the response body
+    if (data.type === 'error' || data.error) {
+      const errMsg = data.error?.message || JSON.stringify(data.error) || 'Unknown API error';
+      throw new Error(`Claude API error: ${errMsg}`);
+    }
+
+    return data;
   }
 }
 

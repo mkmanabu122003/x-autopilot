@@ -346,5 +346,102 @@ describe('ai-provider', () => {
       expect(provider.isOpusModel(null)).toBeFalsy();
       expect(provider.isOpusModel(undefined)).toBeFalsy();
     });
+
+    describe('isThinkingOnlyResponse', () => {
+      test('thinking ブロックのみでテキストなしを検出する', () => {
+        const data = {
+          content: [
+            { type: 'thinking', thinking: 'some thinking...' }
+          ]
+        };
+        expect(provider.isThinkingOnlyResponse(data)).toBe(true);
+      });
+
+      test('thinking + テキストありの場合は false', () => {
+        const data = {
+          content: [
+            { type: 'thinking', thinking: 'some thinking...' },
+            { type: 'text', text: '{"variants":[]}' }
+          ]
+        };
+        expect(provider.isThinkingOnlyResponse(data)).toBe(false);
+      });
+
+      test('テキストのみ（thinking なし）の場合は false', () => {
+        const data = {
+          content: [
+            { type: 'text', text: 'some text' }
+          ]
+        };
+        expect(provider.isThinkingOnlyResponse(data)).toBe(false);
+      });
+
+      test('空のテキストブロックがある場合は thinking-only とみなす', () => {
+        const data = {
+          content: [
+            { type: 'thinking', thinking: 'thinking...' },
+            { type: 'text', text: '' }
+          ]
+        };
+        expect(provider.isThinkingOnlyResponse(data)).toBe(true);
+      });
+
+      test('空白のみのテキストブロックは thinking-only とみなす', () => {
+        const data = {
+          content: [
+            { type: 'thinking', thinking: 'thinking...' },
+            { type: 'text', text: '   ' }
+          ]
+        };
+        expect(provider.isThinkingOnlyResponse(data)).toBe(true);
+      });
+
+      test('content が配列でない場合は false', () => {
+        expect(provider.isThinkingOnlyResponse({})).toBe(false);
+        expect(provider.isThinkingOnlyResponse({ content: 'string' })).toBe(false);
+      });
+    });
+  });
+
+  describe('parseCandidates - パターンメタデータ抽出', () => {
+    let provider;
+
+    beforeEach(() => {
+      provider = new AIProvider();
+    });
+
+    test('JSON variants からパターンメタデータを抽出する', () => {
+      const text = JSON.stringify({
+        variants: [{
+          label: '共感型',
+          body: 'テスト投稿',
+          char_count: 5,
+          opening_pattern: 'O-A',
+          development_pattern: 'D-B',
+          closing_pattern: 'C-C',
+          expressions: ['テスト表現', '500回']
+        }]
+      });
+      const result = provider.parseCandidates(text);
+      expect(result[0].openingPattern).toBe('O-A');
+      expect(result[0].developmentPattern).toBe('D-B');
+      expect(result[0].closingPattern).toBe('C-C');
+      expect(result[0].expressions).toEqual(['テスト表現', '500回']);
+    });
+
+    test('パターンメタデータがない場合はデフォルト値を返す', () => {
+      const text = JSON.stringify({
+        variants: [{
+          label: '共感型',
+          body: 'テスト投稿',
+          char_count: 5
+        }]
+      });
+      const result = provider.parseCandidates(text);
+      expect(result[0].openingPattern).toBeNull();
+      expect(result[0].developmentPattern).toBeNull();
+      expect(result[0].closingPattern).toBeNull();
+      expect(result[0].expressions).toEqual([]);
+    });
   });
 });

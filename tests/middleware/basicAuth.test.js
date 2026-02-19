@@ -5,11 +5,12 @@ describe('basicAuth middleware', () => {
   let basicAuth;
   let req, res, next;
 
-  function setupMocks() {
-    req = { headers: {}, path: '/api/some-route' };
+  function setupMocks(pathOverride) {
+    req = { headers: {}, path: pathOverride || '/api/some-route' };
     res = {
       status: jest.fn().mockReturnThis(),
       send: jest.fn().mockReturnThis(),
+      json: jest.fn().mockReturnThis(),
       setHeader: jest.fn()
     };
     next = jest.fn();
@@ -59,7 +60,15 @@ describe('basicAuth middleware', () => {
       expect(next).toHaveBeenCalled();
     });
 
-    test('Authorization ヘッダーがない場合は 401', () => {
+    test('Authorization ヘッダーがない場合は 401（APIルートはJSON）', () => {
+      basicAuth(req, res, next);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Authentication required' });
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    test('Authorization ヘッダーがない場合は 401（非APIルートはテキスト）', () => {
+      setupMocks('/some-page');
       basicAuth(req, res, next);
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.send).toHaveBeenCalledWith('Authentication required');
@@ -73,12 +82,12 @@ describe('basicAuth middleware', () => {
       expect(next).not.toHaveBeenCalled();
     });
 
-    test('不正なユーザー名は 401', () => {
+    test('不正なユーザー名は 401（APIルートはJSON）', () => {
       const credentials = Buffer.from('wrong:password123').toString('base64');
       req.headers.authorization = `Basic ${credentials}`;
       basicAuth(req, res, next);
       expect(res.status).toHaveBeenCalledWith(401);
-      expect(res.send).toHaveBeenCalledWith('Invalid credentials');
+      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid credentials' });
       expect(next).not.toHaveBeenCalled();
     });
 
