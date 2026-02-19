@@ -129,6 +129,47 @@ describe('prompts', () => {
     expect(system).toContain('パターンH');
   });
 
+  test('tweet_generation に構造パターン（冒頭・展開・締め）が定義されている', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('構造パターン');
+    expect(system).toContain('opening_pattern');
+    expect(system).toContain('development_pattern');
+    expect(system).toContain('closing_pattern');
+  });
+
+  test('tweet_generation に冒頭パターン O-A〜O-E が定義されている', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('O-A');
+    expect(system).toContain('O-B');
+    expect(system).toContain('O-C');
+    expect(system).toContain('O-D');
+    expect(system).toContain('O-E');
+  });
+
+  test('tweet_generation に展開パターン D-A〜D-D が定義されている', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('D-A');
+    expect(system).toContain('D-B');
+    expect(system).toContain('D-C');
+    expect(system).toContain('D-D');
+  });
+
+  test('tweet_generation に締めパターン C-A〜C-D が定義されている', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('C-A');
+    expect(system).toContain('C-B');
+    expect(system).toContain('C-C');
+    expect(system).toContain('C-D');
+  });
+
+  test('tweet_generation のJSON出力にパターンコードフィールドが含まれる', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('"opening_pattern"');
+    expect(system).toContain('"development_pattern"');
+    expect(system).toContain('"closing_pattern"');
+    expect(system).toContain('"expressions"');
+  });
+
   test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(
     '%s にAnti-AI-Smell P1〜P6ルールが含まれる',
     (taskType) => {

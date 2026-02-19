@@ -3,6 +3,7 @@ const { getAIProvider, AIProvider } = require('./ai-provider');
 const { postTweet } = require('./x-api');
 const { getQuoteSuggestions, getReplySuggestions, getCompetitorContext } = require('./analytics');
 const { logError, logInfo } = require('./app-logger');
+const { getPatternConstraintBlock, logPatternUsage } = require('./pattern-rotation');
 
 /**
  * Auto-poster service: generates and schedules/posts content automatically
@@ -191,6 +192,14 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   let drafts = 0;
   const errors = [];
 
+  // Get pattern rotation constraints before generation loop
+  let patternConstraintBlock = '';
+  try {
+    patternConstraintBlock = await getPatternConstraintBlock(accountId);
+  } catch (e) {
+    // Non-critical: continue without constraints
+  }
+
   for (let i = 0; i < count; i++) {
     try {
       // Pick a theme (cycle through available themes)
@@ -205,7 +214,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
       }
 
       const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
-      const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
+      const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${patternConstraintBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
       const genOptions = {
         postType: 'new',
@@ -234,6 +243,20 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         continue;
       }
       generated++;
+
+      // Log pattern usage for rotation tracking
+      if (candidate.openingPattern || candidate.developmentPattern || candidate.closingPattern) {
+        try {
+          await logPatternUsage(accountId, {
+            openingPattern: candidate.openingPattern,
+            developmentPattern: candidate.developmentPattern,
+            closingPattern: candidate.closingPattern,
+            expressions: candidate.expressions
+          });
+        } catch (e) {
+          // Non-critical: don't fail the post over pattern logging
+        }
+      }
 
       if (forcePreview) {
         // Save as draft for user review
