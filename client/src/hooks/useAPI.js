@@ -17,7 +17,18 @@ export function useAPI() {
         },
         ...options
       });
-      const data = await response.json();
+      // Parse response body as text first to avoid JSON parse errors
+      const text = await response.text();
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        throw new Error(
+          !response.ok
+            ? `サーバーエラー (${response.status})`
+            : `レスポンスの解析に失敗しました`
+        );
+      }
       if (!response.ok) {
         throw new Error(data.error || `Request failed: ${response.status}`);
       }

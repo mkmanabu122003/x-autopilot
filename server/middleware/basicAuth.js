@@ -14,9 +14,13 @@ function basicAuth(req, res, next) {
 
   const header = req.headers.authorization;
 
+  const isApiRoute = req.path.startsWith('/api/');
+
   if (!header || !header.startsWith('Basic ')) {
     res.setHeader('WWW-Authenticate', 'Basic realm="X AutoPilot"');
-    return res.status(401).send('Authentication required');
+    return isApiRoute
+      ? res.status(401).json({ error: 'Authentication required' })
+      : res.status(401).send('Authentication required');
   }
 
   const credentials = Buffer.from(header.slice(6), 'base64').toString();
@@ -27,7 +31,9 @@ function basicAuth(req, res, next) {
   }
 
   res.setHeader('WWW-Authenticate', 'Basic realm="X AutoPilot"');
-  return res.status(401).send('Invalid credentials');
+  return isApiRoute
+    ? res.status(401).json({ error: 'Invalid credentials' })
+    : res.status(401).send('Invalid credentials');
 }
 
 module.exports = basicAuth;

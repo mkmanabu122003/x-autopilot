@@ -42,6 +42,15 @@ app.use('/api/growth', growthRouter);
 app.use('/api/cron', cronRouter);
 app.use('/api/logs', logsRouter);
 
+// Global error handler for API routes - ensures JSON responses for all errors
+// Express identifies error handlers by having exactly 4 parameters (err, req, res, next)
+app.use('/api', (err, req, res, next) => {
+  console.error('Unhandled API error:', err.message);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error'
+  });
+});
+
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, '../client/dist')));
