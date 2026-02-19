@@ -313,7 +313,7 @@ export default function AutoPost() {
                       {s.postsPerDay}件/日 - {s.scheduleTimes}
                     </p>
                     <p className="text-xs text-gray-500">
-                      {s.scheduleMode === 'scheduled' ? '予約投稿' : '即時投稿'}
+                      {s.scheduleMode === 'scheduled' ? '予約投稿' : s.scheduleMode === 'draft' ? '下書き保存' : '即時投稿'}
                     </p>
                   </div>
                 );
@@ -369,6 +369,7 @@ export default function AutoPost() {
                       >
                         <option value="scheduled">予約投稿（時間帯に分散）</option>
                         <option value="immediate">即時投稿</option>
+                        <option value="draft">下書き保存（確認後に手動投稿）</option>
                       </select>
                     </div>
                   </div>
@@ -388,6 +389,8 @@ export default function AutoPost() {
                     <p className="text-xs text-gray-400 mt-1">
                       {s.scheduleMode === 'scheduled'
                         ? `${s.scheduleTimes.split(',').length}回の実行時刻に${s.postsPerDay}件を分配して予約します`
+                        : s.scheduleMode === 'draft'
+                        ? `各実行時刻に${Math.ceil(s.postsPerDay / (s.scheduleTimes.split(',').length || 1))}件を下書きとして保存します`
                         : `各実行時刻に${Math.ceil(s.postsPerDay / (s.scheduleTimes.split(',').length || 1))}件を即時投稿します`
                       }
                     </p>

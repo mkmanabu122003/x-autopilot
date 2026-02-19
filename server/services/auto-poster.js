@@ -152,13 +152,16 @@ async function executeAutoPost(setting, count, currentTime, { forcePreview = fal
   const providerName = await resolveProvider(setting.post_type, accountDefault, settingModel);
   const provider = getAIProvider(providerName);
 
+  // 'draft' schedule_mode always saves as draft, same as forcePreview
+  const preview = forcePreview || setting.schedule_mode === 'draft';
+
   switch (setting.post_type) {
     case 'new':
-      return await executeNewTweets(setting, provider, count, currentTime, forcePreview);
+      return await executeNewTweets(setting, provider, count, currentTime, preview);
     case 'reply':
-      return await executeReplies(setting, provider, count, currentTime, forcePreview);
+      return await executeReplies(setting, provider, count, currentTime, preview);
     case 'quote':
-      return await executeQuotes(setting, provider, count, currentTime, forcePreview);
+      return await executeQuotes(setting, provider, count, currentTime, preview);
   }
 }
 
