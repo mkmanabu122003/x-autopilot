@@ -254,12 +254,18 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
         continue;
       }
 
-      // Use the first candidate, skip if text is empty
+      // Use the first candidate, skip if text is empty or looks like raw JSON
       const candidate = result.candidates[0];
       if (!candidate.text || !candidate.text.trim()) {
         console.error('AutoPoster: candidate text is empty, skipping');
         logError('auto_post', `ツイート${i + 1}: 生成されたテキストが空です`, { accountId, provider: result.provider, model: result.model });
         errors.push(`ツイート${i + 1}: 生成されたテキストが空です`);
+        continue;
+      }
+      if (/^\s*[\[{]/.test(candidate.text) && /"(?:variants|body|label)"/.test(candidate.text)) {
+        console.error('AutoPoster: candidate text is raw/truncated JSON, skipping');
+        logError('auto_post', `ツイート${i + 1}: AI応答が途中で切れています（max_tokens不足の可能性）`, { accountId, provider: result.provider, model: result.model });
+        errors.push(`ツイート${i + 1}: AI応答が途中で切れています`);
         continue;
       }
       generated++;
