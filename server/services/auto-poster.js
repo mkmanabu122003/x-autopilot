@@ -210,11 +210,13 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
     // Non-critical
   }
 
-  // Build generation promises for all tweets in parallel to avoid 504 timeouts.
-  // AI API calls are the bottleneck (~15-30s each), so parallelising them
-  // cuts total time from N*T to ~T.
+  // Each AI call returns 3 candidates, so we only need ceil(count/3) calls.
+  // This drastically reduces API calls and avoids timeouts.
+  const CANDIDATES_PER_CALL = 3;
+  const numCalls = Math.ceil(count / CANDIDATES_PER_CALL);
+
   const genPromises = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < numCalls; i++) {
     const theme = themes[i % themes.length];
     const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
     const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${patternConstraintBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
@@ -231,8 +233,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
 
     genPromises.push(
       provider.generateTweets(theme, genOptions).catch(err => {
-        console.error(`AutoPoster: failed to generate new tweet ${i + 1}:`, err.message);
-        logError('auto_post', `新規ツイート生成 ${i + 1} に失敗`, { accountId, error: err.message });
+        console.error(`AutoPoster: failed to generate new tweets (call ${i + 1}):`, err.message);
+        logError('auto_post', `新規ツイート生成 (呼出${i + 1}) に失敗`, { accountId, error: err.message });
         return { error: err.message };
       })
     );
@@ -241,33 +243,38 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   // Wait for all AI generations to complete in parallel
   const genResults = await Promise.all(genPromises);
 
-  // Process results sequentially (DB writes are fast)
-  for (let i = 0; i < genResults.length; i++) {
+  // Flatten candidates from all results, up to `count` total
+  const allCandidates = [];
+  for (const result of genResults) {
+    if (result.error) {
+      errors.push(result.error);
+      continue;
+    }
+    if (!result.candidates || result.candidates.length === 0) {
+      const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
+      errors.push(`候補なし [${debug}]`);
+      continue;
+    }
+    for (const candidate of result.candidates) {
+      if (allCandidates.length >= count) break;
+      allCandidates.push({ candidate, provider: result.provider, model: result.model });
+    }
+  }
+
+  // Process each candidate sequentially (DB writes are fast)
+  for (let i = 0; i < allCandidates.length; i++) {
     try {
-      const result = genResults[i];
+      const { candidate, provider: aiProvider, model: aiModel } = allCandidates[i];
 
-      if (result.error) {
-        errors.push(result.error);
-        continue;
-      }
-
-      if (!result.candidates || result.candidates.length === 0) {
-        const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
-        errors.push(`ツイート${i + 1}: 候補なし [${debug}]`);
-        continue;
-      }
-
-      // Use the first candidate, skip if text is empty or looks like raw JSON
-      const candidate = result.candidates[0];
       if (!candidate.text || !candidate.text.trim()) {
         console.error('AutoPoster: candidate text is empty, skipping');
-        logError('auto_post', `ツイート${i + 1}: 生成されたテキストが空です`, { accountId, provider: result.provider, model: result.model });
+        logError('auto_post', `ツイート${i + 1}: 生成されたテキストが空です`, { accountId, provider: aiProvider, model: aiModel });
         errors.push(`ツイート${i + 1}: 生成されたテキストが空です`);
         continue;
       }
       if (/^\s*[\[{]/.test(candidate.text) && /"(?:variants|body|label)"/.test(candidate.text)) {
         console.error('AutoPoster: candidate text is raw/truncated JSON, skipping');
-        logError('auto_post', `ツイート${i + 1}: AI応答が途中で切れています（max_tokens不足の可能性）`, { accountId, provider: result.provider, model: result.model });
+        logError('auto_post', `ツイート${i + 1}: AI応答が途中で切れています（max_tokens不足の可能性）`, { accountId, provider: aiProvider, model: aiModel });
         errors.push(`ツイート${i + 1}: AI応答が途中で切れています`);
         continue;
       }
@@ -294,8 +301,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
           text: candidate.text,
           post_type: 'new',
           status: 'draft',
-          ai_provider: result.provider,
-          ai_model: result.model
+          ai_provider: aiProvider,
+          ai_model: aiModel
         });
         drafts++;
       } else if (setting.schedule_mode === 'immediate') {
@@ -308,8 +315,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
           post_type: 'new',
           status: 'posted',
           posted_at: new Date().toISOString(),
-          ai_provider: result.provider,
-          ai_model: result.model
+          ai_provider: aiProvider,
+          ai_model: aiModel
         });
         posted++;
       } else {
@@ -321,8 +328,8 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
           post_type: 'new',
           status: 'scheduled',
           scheduled_at: scheduledAt.toISOString(),
-          ai_provider: result.provider,
-          ai_model: result.model
+          ai_provider: aiProvider,
+          ai_model: aiModel
         });
         scheduled++;
       }
