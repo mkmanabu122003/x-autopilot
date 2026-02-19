@@ -316,3 +316,25 @@ ALTER TABLE auto_post_settings ADD COLUMN IF NOT EXISTS max_length INTEGER DEFAU
 ALTER TABLE auto_post_settings DROP CONSTRAINT IF EXISTS auto_post_settings_schedule_mode_check;
 ALTER TABLE auto_post_settings ADD CONSTRAINT auto_post_settings_schedule_mode_check
   CHECK(schedule_mode IN ('scheduled', 'immediate', 'draft'));
+
+-- ============================================
+-- Theme Categories for diverse content generation
+-- ============================================
+CREATE TABLE IF NOT EXISTS theme_categories (
+  id SERIAL PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES x_accounts(id) ON DELETE CASCADE,
+  code TEXT NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT DEFAULT '',
+  sort_order INTEGER DEFAULT 0,
+  enabled BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_theme_categories_account_code
+  ON theme_categories(account_id, code);
+CREATE INDEX IF NOT EXISTS idx_theme_categories_account
+  ON theme_categories(account_id);
+
+-- Track which theme category was used for each generated post
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS theme_category TEXT;

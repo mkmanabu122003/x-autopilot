@@ -80,6 +80,9 @@ export default function AutoPost() {
   const [running, setRunning] = useState(null);
   const [activeTab, setActiveTab] = useState('settings');
   const [draftResult, setDraftResult] = useState(null);
+  const [themeCategories, setThemeCategories] = useState([]);
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [categorySaved, setCategorySaved] = useState(false);
 
   const loadSettings = useCallback(async () => {
     if (!currentAccount) return;
@@ -124,10 +127,21 @@ export default function AutoPost() {
     }
   }, [get, currentAccount]);
 
+  const loadThemeCategories = useCallback(async () => {
+    if (!currentAccount) return;
+    try {
+      const data = await get(`/auto-post/theme-categories?accountId=${currentAccount.id}`);
+      setThemeCategories(data || []);
+    } catch (e) {
+      setThemeCategories([]);
+    }
+  }, [get, currentAccount]);
+
   useEffect(() => {
     loadSettings();
     loadLogs();
-  }, [loadSettings, loadLogs]);
+    loadThemeCategories();
+  }, [loadSettings, loadLogs, loadThemeCategories]);
 
   const getDefault = (postType) => ({
     enabled: false,
@@ -245,6 +259,39 @@ export default function AutoPost() {
       setActiveTab('logs');
     } finally {
       setRunning(null);
+    }
+  };
+
+  // Theme category management
+  const addCategory = () => {
+    const nextIndex = themeCategories.length + 1;
+    const code = `T-${String.fromCharCode(64 + nextIndex)}`;
+    setThemeCategories([...themeCategories, { code, name: '', description: '', enabled: true }]);
+  };
+
+  const updateCategory = (index, field, value) => {
+    setThemeCategories(prev => prev.map((cat, i) => i === index ? { ...cat, [field]: value } : cat));
+  };
+
+  const removeCategory = (index) => {
+    setThemeCategories(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const saveThemeCategories = async () => {
+    if (!currentAccount) return;
+    setCategorySaving(true);
+    try {
+      await put('/auto-post/theme-categories', {
+        accountId: currentAccount.id,
+        categories: themeCategories.filter(c => c.name.trim()),
+      });
+      setCategorySaved(true);
+      setTimeout(() => setCategorySaved(false), 2000);
+      await loadThemeCategories();
+    } catch (e) {
+      alert(`保存エラー: ${e.message}`);
+    } finally {
+      setCategorySaving(false);
     }
   };
 
@@ -424,6 +471,82 @@ export default function AutoPost() {
                       <p className="text-xs text-gray-400 mt-1">
                         投稿ごとにテーマを順番に使用します
                       </p>
+                    </div>
+                  )}
+
+                  {/* Theme Categories (only for new tweets) */}
+                  {config.hasThemes && (
+                    <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-700">
+                            テーマカテゴリ
+                          </label>
+                          <p className="text-xs text-gray-400 mt-0.5">
+                            直近3件と同じカテゴリは自動回避されます
+                          </p>
+                        </div>
+                        <button
+                          onClick={addCategory}
+                          className="px-2 py-1 text-xs font-medium text-blue-600 border border-blue-300 rounded hover:bg-blue-50 transition-colors"
+                        >
+                          + 追加
+                        </button>
+                      </div>
+                      {themeCategories.length === 0 ? (
+                        <p className="text-xs text-gray-400 text-center py-2">
+                          カテゴリ未設定（設定するとテーマの偏りを防ぎます）
+                        </p>
+                      ) : (
+                        <div className="space-y-2">
+                          {themeCategories.map((cat, idx) => (
+                            <div key={idx} className="flex items-start gap-2">
+                              <input
+                                type="text"
+                                value={cat.code}
+                                onChange={(e) => updateCategory(idx, 'code', e.target.value)}
+                                placeholder="T-A"
+                                className="w-14 px-2 py-1.5 border border-gray-300 rounded text-xs font-mono flex-shrink-0"
+                              />
+                              <input
+                                type="text"
+                                value={cat.name}
+                                onChange={(e) => updateCategory(idx, 'name', e.target.value)}
+                                placeholder="カテゴリ名"
+                                className="w-36 px-2 py-1.5 border border-gray-300 rounded text-xs flex-shrink-0"
+                              />
+                              <input
+                                type="text"
+                                value={cat.description || ''}
+                                onChange={(e) => updateCategory(idx, 'description', e.target.value)}
+                                placeholder="説明（任意）"
+                                className="flex-1 px-2 py-1.5 border border-gray-300 rounded text-xs"
+                              />
+                              <button
+                                onClick={() => removeCategory(idx)}
+                                className="px-1.5 py-1.5 text-red-400 hover:text-red-600 text-xs flex-shrink-0"
+                                title="削除"
+                              >
+                                x
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {themeCategories.length > 0 && (
+                        <div className="flex items-center gap-2 pt-1">
+                          <button
+                            onClick={saveThemeCategories}
+                            disabled={categorySaving}
+                            className="px-3 py-1.5 text-xs font-medium bg-gray-100 text-gray-700 border border-gray-300 rounded hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                          >
+                            {categorySaving ? '保存中...' : 'カテゴリを保存'}
+                          </button>
+                          {categorySaved && (
+                            <span className="text-xs text-green-600">保存しました</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 

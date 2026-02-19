@@ -165,4 +165,84 @@ router.get('/logs', async (req, res) => {
   }
 });
 
+// ============================================
+// Theme Categories API
+// ============================================
+
+// GET /api/auto-post/theme-categories - Get theme categories for an account
+router.get('/theme-categories', async (req, res) => {
+  try {
+    const sb = getDb();
+    const accountId = req.query.accountId;
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+
+    const { data, error } = await sb.from('theme_categories')
+      .select('*')
+      .eq('account_id', accountId)
+      .order('sort_order')
+      .order('created_at');
+
+    if (error) throw error;
+    res.json(data || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/auto-post/theme-categories - Bulk upsert theme categories
+router.put('/theme-categories', async (req, res) => {
+  try {
+    const { accountId, categories } = req.body;
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+    if (!Array.isArray(categories)) return res.status(400).json({ error: 'categories must be an array' });
+
+    // Validate categories
+    const codes = new Set();
+    for (const cat of categories) {
+      if (!cat.code || !cat.name) {
+        return res.status(400).json({ error: `Each category must have code and name` });
+      }
+      if (codes.has(cat.code)) {
+        return res.status(400).json({ error: `Duplicate code: ${cat.code}` });
+      }
+      codes.add(cat.code);
+    }
+
+    const sb = getDb();
+
+    // Delete categories that are no longer in the list
+    const newCodes = categories.map(c => c.code);
+    if (newCodes.length > 0) {
+      await sb.from('theme_categories')
+        .delete()
+        .eq('account_id', accountId)
+        .not('code', 'in', `(${newCodes.join(',')})`);
+    } else {
+      await sb.from('theme_categories')
+        .delete()
+        .eq('account_id', accountId);
+    }
+
+    // Upsert all categories
+    if (categories.length > 0) {
+      const rows = categories.map((cat, i) => ({
+        account_id: accountId,
+        code: cat.code,
+        name: cat.name,
+        description: cat.description || '',
+        sort_order: i,
+        enabled: cat.enabled !== false,
+      }));
+
+      const { error } = await sb.from('theme_categories')
+        .upsert(rows, { onConflict: 'account_id,code' });
+      if (error) throw error;
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;
