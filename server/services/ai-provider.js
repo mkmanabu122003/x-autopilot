@@ -276,7 +276,7 @@ class ClaudeProvider extends AIProvider {
     if (!this.isOpusModel(model)) return undefined;
 
     const ANALYSIS_TASKS = ['competitor_analysis', 'performance_summary'];
-    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 512;
+    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 1024;
 
     return {
       type: 'enabled',
