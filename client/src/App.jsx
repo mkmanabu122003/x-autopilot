@@ -9,6 +9,7 @@ import Settings from './pages/Settings';
 import QuoteWorkflow from './pages/QuoteWorkflow';
 import ReplyWorkflow from './pages/ReplyWorkflow';
 import AutoPost from './pages/AutoPost';
+import Improvement from './pages/Improvement';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
             <Route path="/quote-workflow" element={<QuoteWorkflow />} />
             <Route path="/reply-workflow" element={<ReplyWorkflow />} />
             <Route path="/auto-post" element={<AutoPost />} />
+            <Route path="/improvement" element={<Improvement />} />
             <Route path="/competitors" element={<Competitors />} />
             <Route path="/settings" element={<Settings />} />
           </Routes>

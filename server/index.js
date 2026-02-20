@@ -18,6 +18,7 @@ const autoPostRouter = require('./routes/auto-post');
 const growthRouter = require('./routes/growth');
 const cronRouter = require('./routes/cron');
 const logsRouter = require('./routes/logs');
+const improvementRouter = require('./routes/improvement');
 
 const basicAuth = require('./middleware/basicAuth');
 
@@ -41,6 +42,7 @@ app.use('/api/auto-post', autoPostRouter);
 app.use('/api/growth', growthRouter);
 app.use('/api/cron', cronRouter);
 app.use('/api/logs', logsRouter);
+app.use('/api/improvement', improvementRouter);
 
 // Global error handler for API routes - ensures JSON responses for all errors
 // Express identifies error handlers by having exactly 4 parameters (err, req, res, next)

@@ -61,6 +61,11 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
+// Mock tweet-improver
+jest.mock('../../server/services/tweet-improver', () => ({
+  buildPerformanceContextBlock: jest.fn().mockResolvedValue('')
+}));
+
 const { logAutoPostExecution, isTimeInWindow, isDeletedTweetError, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, pickAvailableCategory, buildCategoryConstraintBlock, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
 const { getReplySuggestions } = require('../../server/services/analytics');

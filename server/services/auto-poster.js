@@ -4,6 +4,7 @@ const { postTweet } = require('./x-api');
 const { getQuoteSuggestions, getReplySuggestions, getCompetitorContext } = require('./analytics');
 const { logError, logInfo } = require('./app-logger');
 const { getPatternConstraintBlock, logPatternUsage } = require('./pattern-rotation');
+const { buildPerformanceContextBlock } = require('./tweet-improver');
 
 /**
  * Fetch enabled theme categories for an account.
@@ -297,6 +298,14 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   const selectedCategory = pickAvailableCategory(themeCategories, recentCategoryCodes);
   const categoryBlock = buildCategoryConstraintBlock(themeCategories, recentCategoryCodes, selectedCategory);
 
+  // Performance feedback: inject insights from past post analysis
+  let performanceBlock = '';
+  try {
+    performanceBlock = await buildPerformanceContextBlock(accountId);
+  } catch (e) {
+    // Non-critical: continue without performance feedback
+  }
+
   // Each AI call returns 3 candidates, so we only need ceil(count/3) calls.
   // This drastically reduces API calls and avoids timeouts.
   const CANDIDATES_PER_CALL = 3;
@@ -306,7 +315,7 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   for (let i = 0; i < numCalls; i++) {
     const theme = themes[i % themes.length];
     const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
-    const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${categoryBlock}${patternConstraintBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
+    const userPrompt = `テーマ「${theme}」でツイートを3パターン作成してください。${styleInstruction}${maxLenNote}${categoryBlock}${patternConstraintBlock}${performanceBlock}\n\nbodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
     const genOptions = {
       postType: 'new',
