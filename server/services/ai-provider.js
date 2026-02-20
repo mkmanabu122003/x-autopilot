@@ -25,6 +25,13 @@ async function fetchWithRetry(url, options, { maxRetries = MAX_RETRIES, initialB
     } catch (err) {
       clearTimeout(timer);
       if (err.name === 'AbortError') {
+        // Retry timeout errors with backoff (same as 429)
+        if (attempt < maxRetries) {
+          const backoff = initialBackoffMs * Math.pow(2, attempt);
+          await sleep(backoff);
+          lastError = { type: 'timeout', attempt };
+          continue;
+        }
         throw new Error('AI APIの応答がタイムアウトしました。もう一度お試しください。');
       }
       throw err;

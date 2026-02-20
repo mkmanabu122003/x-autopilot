@@ -61,9 +61,10 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
-const { logAutoPostExecution, isTimeInWindow, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, pickAvailableCategory, buildCategoryConstraintBlock, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
+const { logAutoPostExecution, isTimeInWindow, isDeletedTweetError, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, pickAvailableCategory, buildCategoryConstraintBlock, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
 const { getReplySuggestions } = require('../../server/services/analytics');
+const { postTweet } = require('../../server/services/x-api');
 
 describe('auto-poster', () => {
   describe('getJSTNow', () => {
@@ -697,6 +698,96 @@ describe('auto-poster', () => {
       const result = buildCategoryConstraintBlock(categories, [], selected);
       expect(result).toContain('T-B（ゲスト観察）');
       expect(result).not.toContain('使用済み');
+    });
+  });
+
+  describe('isDeletedTweetError', () => {
+    test('deleted or not visible メッセージを検出する', () => {
+      const msg = 'X API error 403: {"detail":"You attempted to reply to a Tweet that is deleted or not visible to you.","type":"about:blank","title":"Forbidden","status":403}';
+      expect(isDeletedTweetError(msg)).toBe(true);
+    });
+
+    test('403 Forbidden メッセージを検出する', () => {
+      const msg = 'X API error 403: {"title":"Forbidden","status":403}';
+      expect(isDeletedTweetError(msg)).toBe(true);
+    });
+
+    test('他のエラーメッセージは false を返す', () => {
+      expect(isDeletedTweetError('X API error 429: rate limit')).toBe(false);
+      expect(isDeletedTweetError('AI APIの応答がタイムアウトしました')).toBe(false);
+      expect(isDeletedTweetError('Network error')).toBe(false);
+    });
+
+    test('null/undefined は false を返す', () => {
+      expect(isDeletedTweetError(null)).toBe(false);
+      expect(isDeletedTweetError(undefined)).toBe(false);
+      expect(isDeletedTweetError('')).toBe(false);
+    });
+  });
+
+  describe('リプライ投稿で元ツイートが削除されている場合', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('即時投稿モードで元ツイートが削除されていた場合、下書きとして保存する', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      // Mock: postTweet throws 403 for deleted tweet
+      postTweet.mockRejectedValueOnce(
+        new Error('X API error 403: {"detail":"You attempted to reply to a Tweet that is deleted or not visible to you.","title":"Forbidden","status":403}')
+      );
+
+      getReplySuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-deleted', text: '削除されたツイート', handle: 'rival' }
+      ]);
+
+      const insertCalls = [];
+      const updateCalls = [];
+      const mockFrom = jest.fn((table) => {
+        if (table === 'auto_post_settings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                data: [{
+                  id: 'setting-reply-del',
+                  account_id: 'account-1',
+                  post_type: 'reply',
+                  enabled: true,
+                  schedule_times: '20:50',
+                  posts_per_day: 1,
+                  schedule_mode: 'immediate',
+                  last_run_date: null,
+                  last_run_times: '',
+                  x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+                }],
+                error: null
+              })
+            }),
+            update: jest.fn((data) => {
+              updateCalls.push({ table, data });
+              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            })
+          };
+        }
+        return {
+          insert: jest.fn((data) => {
+            insertCalls.push({ table, data });
+            return Promise.resolve({ error: null });
+          })
+        };
+      });
+      getDb.mockReturnValue({ from: mockFrom });
+
+      await checkAndRunAutoPosts();
+
+      // Generated content should be saved as draft (not lost)
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts.length).toBeGreaterThanOrEqual(1);
+      const draftInsert = postInserts.find(c => c.data.status === 'draft');
+      expect(draftInsert).toBeDefined();
+      expect(draftInsert.data.error_message).toContain('元ツイートが削除された');
     });
   });
 });

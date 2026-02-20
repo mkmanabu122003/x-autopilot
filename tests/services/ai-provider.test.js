@@ -299,9 +299,9 @@ describe('ai-provider', () => {
       expect(global.fetch).toHaveBeenCalledTimes(1);
     });
 
-    test('タイムアウトでAbortErrorを投げる', async () => {
+    test('タイムアウトが最大リトライ回数を超えるとエラーを投げる', async () => {
       jest.useRealTimers();
-      // Simulate a fetch that respects the AbortSignal
+      // Simulate a fetch that always times out
       jest.spyOn(global, 'fetch').mockImplementation((url, opts) =>
         new Promise((resolve, reject) => {
           const timer = setTimeout(() => resolve({ ok: true }), 5000);
@@ -317,8 +317,40 @@ describe('ai-provider', () => {
       );
 
       await expect(
-        fetchWithRetry('https://example.com/api', { method: 'POST' }, { timeoutMs: 50 })
+        fetchWithRetry('https://example.com/api', { method: 'POST' }, { timeoutMs: 50, maxRetries: 1, initialBackoffMs: 1 })
       ).rejects.toThrow('タイムアウト');
+      // initial + 1 retry = 2 calls
+      expect(global.fetch).toHaveBeenCalledTimes(2);
+      jest.useFakeTimers();
+    });
+
+    test('タイムアウト後のリトライで成功する', async () => {
+      jest.useRealTimers();
+      let callCount = 0;
+      jest.spyOn(global, 'fetch').mockImplementation((url, opts) =>
+        new Promise((resolve, reject) => {
+          callCount++;
+          if (callCount === 1) {
+            // First call: timeout
+            const timer = setTimeout(() => resolve({ ok: true }), 5000);
+            if (opts?.signal) {
+              opts.signal.addEventListener('abort', () => {
+                clearTimeout(timer);
+                const err = new Error('The operation was aborted');
+                err.name = 'AbortError';
+                reject(err);
+              });
+            }
+          } else {
+            // Second call: success
+            resolve({ ok: true, json: async () => ({ result: 'ok' }) });
+          }
+        })
+      );
+
+      const result = await fetchWithRetry('https://example.com/api', { method: 'POST' }, { timeoutMs: 50, maxRetries: 2, initialBackoffMs: 1 });
+      expect(result.ok).toBe(true);
+      expect(global.fetch).toHaveBeenCalledTimes(2);
       jest.useFakeTimers();
     });
 
