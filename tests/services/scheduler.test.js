@@ -36,7 +36,12 @@ jest.mock('../../server/services/batch-manager', () => ({
 }));
 
 jest.mock('../../server/services/auto-poster', () => ({
-  checkAndRunAutoPosts: jest.fn()
+  checkAndRunAutoPosts: jest.fn(),
+  isDeletedTweetError: (msg) => {
+    if (!msg) return false;
+    return msg.includes('deleted or not visible') ||
+      (msg.includes('X API error 403') && msg.includes('Forbidden'));
+  }
 }));
 
 jest.mock('../../server/services/growth-analytics', () => ({
@@ -174,5 +179,27 @@ describe('processScheduledPosts', () => {
     expect(mockPostTweet).toHaveBeenCalledTimes(2);
     expect(mockPostTweet).toHaveBeenCalledWith('投稿1', { accountId: 10 });
     expect(mockPostTweet).toHaveBeenCalledWith('投稿2', { accountId: 11 });
+  });
+
+  test('元ツイートが削除された場合はユーザーフレンドリーなエラーメッセージで失敗にする', async () => {
+    const scheduledReply = {
+      id: 7, account_id: 10, text: 'リプライ',
+      post_type: 'reply', target_tweet_id: 'deleted-tweet',
+      status: 'scheduled', scheduled_at: '2026-02-17T00:00:00.000Z'
+    };
+
+    const mockDb = createMockDb({ data: [scheduledReply], error: null });
+    getDb.mockReturnValue(mockDb);
+    mockPostTweet.mockRejectedValueOnce(
+      new Error('X API error 403: {"detail":"You attempted to reply to a Tweet that is deleted or not visible to you.","title":"Forbidden","status":403}')
+    );
+
+    await processScheduledPosts();
+
+    // Verify update was called with user-friendly error message (not raw API error)
+    expect(mockDb._queryChain.update).toHaveBeenCalledWith({
+      status: 'failed',
+      error_message: '元ツイートが削除されたため投稿できませんでした'
+    });
   });
 });

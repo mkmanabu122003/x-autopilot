@@ -3,7 +3,7 @@ const { getDb } = require('../db/database');
 const { postTweet, getUserTweets } = require('./x-api');
 const { calculateEngagementRate } = require('./analytics');
 const { BatchManager } = require('./batch-manager');
-const { checkAndRunAutoPosts } = require('./auto-poster');
+const { checkAndRunAutoPosts, isDeletedTweetError } = require('./auto-poster');
 const { refreshOwnPostMetrics, recordFollowerSnapshot } = require('./growth-analytics');
 const { logError, logWarn, logInfo } = require('./app-logger');
 
@@ -133,9 +133,12 @@ async function processScheduledPosts() {
     } catch (err) {
       console.error(`Failed to publish scheduled post ${post.id}:`, err.message);
       logError('scheduler', `予約投稿 ${post.id} の公開に失敗`, { postId: post.id, error: err.message, stack: err.stack });
+      const errorMsg = isDeletedTweetError(err.message)
+        ? '元ツイートが削除されたため投稿できませんでした'
+        : err.message;
       try {
         await sb.from('my_posts')
-          .update({ status: 'failed', error_message: err.message })
+          .update({ status: 'failed', error_message: errorMsg })
           .eq('id', post.id);
       } catch (updateErr) {
         console.error(`Scheduler: also failed to mark post ${post.id} as failed:`, updateErr.message);

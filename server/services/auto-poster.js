@@ -78,6 +78,15 @@ function buildCategoryConstraintBlock(categories, recentCodes, selectedCategory)
 }
 
 /**
+ * Check if an error message indicates the target tweet is deleted or not visible.
+ */
+function isDeletedTweetError(errorMessage) {
+  if (!errorMessage) return false;
+  return errorMessage.includes('deleted or not visible') ||
+    (errorMessage.includes('X API error 403') && errorMessage.includes('Forbidden'));
+}
+
+/**
  * Auto-poster service: generates and schedules/posts content automatically
  * based on auto_post_settings configuration.
  *
@@ -457,8 +466,11 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
   const total = Math.min(count, suggestions.length);
 
   for (let i = 0; i < total; i++) {
+    let target = null;
+    let candidate = null;
+    let result = null;
     try {
-      const target = suggestions[i];
+      target = suggestions[i];
 
       const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
       const replyPrompt = `以下の元ツイートに対するリプライを3パターン作成してください。
@@ -479,7 +491,7 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
       if (setting.ai_model) genOptions.model = setting.ai_model;
       if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
 
-      const result = await provider.generateTweets(target.text, genOptions);
+      result = await provider.generateTweets(target.text, genOptions);
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
@@ -487,7 +499,7 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
         continue;
       }
 
-      const candidate = result.candidates[0];
+      candidate = result.candidates[0];
       if (!candidate.text || !candidate.text.trim()) {
         console.error('AutoPoster: reply candidate text is empty, skipping');
         logError('auto_post', `リプライ${i + 1}: 生成されたテキストが空です`, { accountId });
@@ -541,7 +553,28 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post reply ${i + 1}:`, err.message);
       logError('auto_post', `リプライ生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
-      errors.push(err.message);
+
+      // If posting failed because target tweet was deleted, save generated content as draft
+      if (candidate && isDeletedTweetError(err.message)) {
+        try {
+          await sb.from('my_posts').insert({
+            account_id: accountId,
+            text: candidate.text,
+            post_type: 'reply',
+            target_tweet_id: target.tweet_id,
+            status: 'draft',
+            error_message: '元ツイートが削除されたため下書きに保存しました',
+            ai_provider: result.provider,
+            ai_model: result.model
+          });
+          drafts++;
+        } catch (saveErr) {
+          // Non-critical: don't fail over saving draft
+        }
+        errors.push(`リプライ${i + 1}: 元ツイートが削除されているため下書きに保存しました`);
+      } else {
+        errors.push(err.message);
+      }
     }
   }
 
@@ -579,8 +612,11 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
   const total = Math.min(count, suggestions.length);
 
   for (let i = 0; i < total; i++) {
+    let target = null;
+    let candidate = null;
+    let result = null;
     try {
-      const target = suggestions[i];
+      target = suggestions[i];
 
       const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
       const quotePrompt = `以下の元ツイートに対する引用リツイートを3パターン作成してください。
@@ -601,7 +637,7 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
       if (setting.ai_model) genOptions.model = setting.ai_model;
       if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
 
-      const result = await provider.generateTweets(target.text, genOptions);
+      result = await provider.generateTweets(target.text, genOptions);
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
@@ -609,7 +645,7 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
         continue;
       }
 
-      const candidate = result.candidates[0];
+      candidate = result.candidates[0];
       if (!candidate.text || !candidate.text.trim()) {
         console.error('AutoPoster: quote candidate text is empty, skipping');
         logError('auto_post', `引用RT${i + 1}: 生成されたテキストが空です`, { accountId });
@@ -663,7 +699,28 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post quote ${i + 1}:`, err.message);
       logError('auto_post', `引用RT生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
-      errors.push(err.message);
+
+      // If posting failed because target tweet was deleted, save generated content as draft
+      if (candidate && isDeletedTweetError(err.message)) {
+        try {
+          await sb.from('my_posts').insert({
+            account_id: accountId,
+            text: candidate.text,
+            post_type: 'quote',
+            target_tweet_id: target.tweet_id,
+            status: 'draft',
+            error_message: '元ツイートが削除されたため下書きに保存しました',
+            ai_provider: result.provider,
+            ai_model: result.model
+          });
+          drafts++;
+        } catch (saveErr) {
+          // Non-critical: don't fail over saving draft
+        }
+        errors.push(`引用RT${i + 1}: 元ツイートが削除されているため下書きに保存しました`);
+      } else {
+        errors.push(err.message);
+      }
     }
   }
 
@@ -759,6 +816,7 @@ module.exports = {
   runAutoPostManually,
   logAutoPostExecution,
   isTimeInWindow,
+  isDeletedTweetError,
   getJSTNow,
   buildStyleInstruction,
   pickAvailableCategory,
