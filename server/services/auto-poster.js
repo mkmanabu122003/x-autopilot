@@ -1,6 +1,6 @@
 const { getDb } = require('../db/database');
 const { getAIProvider, AIProvider } = require('./ai-provider');
-const { postTweet } = require('./x-api');
+const { postTweet, getTweetMetrics } = require('./x-api');
 const { getQuoteSuggestions, getReplySuggestions, getCompetitorContext } = require('./analytics');
 const { logError, logInfo } = require('./app-logger');
 const { getPatternConstraintBlock, logPatternUsage } = require('./pattern-rotation');
@@ -84,6 +84,47 @@ function isDeletedTweetError(errorMessage) {
   if (!errorMessage) return false;
   return errorMessage.includes('deleted or not visible') ||
     (errorMessage.includes('X API error 403') && errorMessage.includes('Forbidden'));
+}
+
+/**
+ * Verify which suggestion tweets still exist on X and filter out deleted ones.
+ * Uses getTweetMetrics to batch-check tweet IDs (cost: $0.001/tweet).
+ * Also marks deleted tweets in competitor_tweets for future exclusion.
+ */
+async function filterAccessibleSuggestions(suggestions, accountId) {
+  if (!suggestions || suggestions.length === 0) return [];
+
+  const tweetIds = suggestions.map(s => s.tweet_id).filter(Boolean);
+  if (tweetIds.length === 0) return suggestions;
+
+  try {
+    const metricsData = await getTweetMetrics(tweetIds, accountId);
+    const accessibleIds = new Set(metricsData.map(t => t.id));
+
+    // Identify deleted tweet IDs and mark them in competitor_tweets
+    const deletedIds = tweetIds.filter(id => !accessibleIds.has(id));
+    if (deletedIds.length > 0) {
+      console.log(`AutoPoster: ${deletedIds.length} target tweet(s) no longer accessible, skipping`);
+      logInfo('auto_post', `${deletedIds.length}件の対象ツイートが削除済みのためスキップ`, { accountId, deletedIds });
+
+      // Remove deleted tweets from competitor_tweets so they won't be suggested again
+      try {
+        const sb = getDb();
+        await sb.from('competitor_tweets')
+          .delete()
+          .in('tweet_id', deletedIds);
+      } catch (dbErr) {
+        // Non-critical: DB cleanup failure shouldn't block posting
+      }
+    }
+
+    return suggestions.filter(s => accessibleIds.has(s.tweet_id));
+  } catch (err) {
+    // If verification fails (e.g., API error), return all suggestions
+    // and let the posting step handle any 403 errors
+    console.error('AutoPoster: tweet accessibility check failed, proceeding with all suggestions:', err.message);
+    return suggestions;
+  }
 }
 
 /**
@@ -444,9 +485,10 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
   const errors = [];
 
   // Get reply target suggestions from competitor tweets
+  // Request extra suggestions to compensate for potentially deleted tweets
   let suggestions;
   try {
-    suggestions = await getReplySuggestions(accountId, { limit: count });
+    suggestions = await getReplySuggestions(accountId, { limit: count + 3 });
   } catch (err) {
     await logAutoPostExecution(accountId, 'reply', 0, 0, 0, 'failed', `リプライ候補取得エラー: ${err.message}`);
     return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
@@ -455,6 +497,15 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
   if (!suggestions || suggestions.length === 0) {
     console.log('AutoPoster: no reply targets available');
     await logAutoPostExecution(accountId, 'reply', 0, 0, 0, 'failed', 'リプライ対象のツイートが見つかりません');
+    return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
+  }
+
+  // Verify target tweets still exist before generating AI content
+  suggestions = await filterAccessibleSuggestions(suggestions, accountId);
+
+  if (suggestions.length === 0) {
+    console.log('AutoPoster: all reply targets have been deleted');
+    await logAutoPostExecution(accountId, 'reply', 0, 0, 0, 'failed', 'リプライ対象のツイートがすべて削除済みです');
     return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
@@ -553,28 +604,7 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post reply ${i + 1}:`, err.message);
       logError('auto_post', `リプライ生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
-
-      // If posting failed because target tweet was deleted, save generated content as draft
-      if (candidate && isDeletedTweetError(err.message)) {
-        try {
-          await sb.from('my_posts').insert({
-            account_id: accountId,
-            text: candidate.text,
-            post_type: 'reply',
-            target_tweet_id: target.tweet_id,
-            status: 'draft',
-            error_message: '元ツイートが削除されたため下書きに保存しました',
-            ai_provider: result.provider,
-            ai_model: result.model
-          });
-          drafts++;
-        } catch (saveErr) {
-          // Non-critical: don't fail over saving draft
-        }
-        errors.push(`リプライ${i + 1}: 元ツイートが削除されているため下書きに保存しました`);
-      } else {
-        errors.push(err.message);
-      }
+      errors.push(err.message);
     }
   }
 
@@ -592,7 +622,7 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
   // Get quote target suggestions from competitor tweets
   let suggestions;
   try {
-    suggestions = await getQuoteSuggestions(accountId, { limit: count });
+    suggestions = await getQuoteSuggestions(accountId, { limit: count + 3 });
   } catch (err) {
     await logAutoPostExecution(accountId, 'quote', 0, 0, 0, 'failed', `引用RT候補取得エラー: ${err.message}`);
     return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
@@ -601,6 +631,15 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
   if (!suggestions || suggestions.length === 0) {
     console.log('AutoPoster: no quote targets available');
     await logAutoPostExecution(accountId, 'quote', 0, 0, 0, 'failed', '引用RT対象のツイートが見つかりません');
+    return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
+  }
+
+  // Verify target tweets still exist before generating AI content
+  suggestions = await filterAccessibleSuggestions(suggestions, accountId);
+
+  if (suggestions.length === 0) {
+    console.log('AutoPoster: all quote targets have been deleted');
+    await logAutoPostExecution(accountId, 'quote', 0, 0, 0, 'failed', '引用RT対象のツイートがすべて削除済みです');
     return { generated: 0, drafts: 0, scheduled: 0, posted: 0 };
   }
 
@@ -699,28 +738,7 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
     } catch (err) {
       console.error(`AutoPoster: failed to generate/post quote ${i + 1}:`, err.message);
       logError('auto_post', `引用RT生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
-
-      // If posting failed because target tweet was deleted, save generated content as draft
-      if (candidate && isDeletedTweetError(err.message)) {
-        try {
-          await sb.from('my_posts').insert({
-            account_id: accountId,
-            text: candidate.text,
-            post_type: 'quote',
-            target_tweet_id: target.tweet_id,
-            status: 'draft',
-            error_message: '元ツイートが削除されたため下書きに保存しました',
-            ai_provider: result.provider,
-            ai_model: result.model
-          });
-          drafts++;
-        } catch (saveErr) {
-          // Non-critical: don't fail over saving draft
-        }
-        errors.push(`引用RT${i + 1}: 元ツイートが削除されているため下書きに保存しました`);
-      } else {
-        errors.push(err.message);
-      }
+      errors.push(err.message);
     }
   }
 
@@ -817,6 +835,7 @@ module.exports = {
   logAutoPostExecution,
   isTimeInWindow,
   isDeletedTweetError,
+  filterAccessibleSuggestions,
   getJSTNow,
   buildStyleInstruction,
   pickAvailableCategory,

@@ -6,6 +6,7 @@ jest.mock('../../server/db/database', () => {
     update: jest.fn().mockReturnThis(),
     delete: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockResolvedValue({ error: null }),
     order: jest.fn().mockReturnThis(),
     limit: jest.fn().mockReturnThis(),
     single: jest.fn().mockResolvedValue({ data: null, error: null }),
@@ -20,6 +21,7 @@ jest.mock('../../server/db/database', () => {
 // Mock x-api
 jest.mock('../../server/services/x-api', () => ({
   postTweet: jest.fn().mockResolvedValue({ data: { id: 'tweet-123' } }),
+  getTweetMetrics: jest.fn().mockResolvedValue([]),
   logApiUsage: jest.fn().mockResolvedValue(undefined)
 }));
 
@@ -61,10 +63,10 @@ jest.mock('../../server/services/cost-calculator', () => ({
   checkBudgetStatus: jest.fn().mockResolvedValue({ shouldPause: false })
 }));
 
-const { logAutoPostExecution, isTimeInWindow, isDeletedTweetError, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, pickAvailableCategory, buildCategoryConstraintBlock, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
+const { logAutoPostExecution, isTimeInWindow, isDeletedTweetError, filterAccessibleSuggestions, getJSTNow, buildStyleInstruction, checkAndRunAutoPosts, pickAvailableCategory, buildCategoryConstraintBlock, SCHEDULE_WINDOW_MINUTES, JST_OFFSET_HOURS } = require('../../server/services/auto-poster');
 const { getDb } = require('../../server/db/database');
 const { getReplySuggestions } = require('../../server/services/analytics');
-const { postTweet } = require('../../server/services/x-api');
+const { postTweet, getTweetMetrics } = require('../../server/services/x-api');
 
 describe('auto-poster', () => {
   describe('getJSTNow', () => {
@@ -514,6 +516,8 @@ describe('auto-poster', () => {
       getReplySuggestions.mockResolvedValueOnce([
         { tweet_id: 'tw-draft', text: 'ターゲットツイート', handle: 'rival' }
       ]);
+      // Mock tweet as accessible so it passes pre-validation
+      getTweetMetrics.mockResolvedValueOnce([{ id: 'tw-draft' }]);
 
       const { updateCalls, insertCalls } = setupMockDb([{
         id: 'setting-reply-draft',
@@ -544,6 +548,8 @@ describe('auto-poster', () => {
       getQuoteSuggestions.mockResolvedValueOnce([
         { tweet_id: 'tw-qdraft', text: '引用対象ツイート', handle: 'competitor' }
       ]);
+      // Mock tweet as accessible so it passes pre-validation
+      getTweetMetrics.mockResolvedValueOnce([{ id: 'tw-qdraft' }]);
 
       const { updateCalls, insertCalls } = setupMockDb([{
         id: 'setting-quote-draft',
@@ -725,23 +731,92 @@ describe('auto-poster', () => {
     });
   });
 
+  describe('filterAccessibleSuggestions', () => {
+    beforeEach(() => {
+      getTweetMetrics.mockClear();
+    });
+
+    test('存在するツイートのみを返す', async () => {
+      getTweetMetrics.mockResolvedValueOnce([
+        { id: 'tw-1' },
+        { id: 'tw-3' }
+      ]);
+
+      const suggestions = [
+        { tweet_id: 'tw-1', text: '存在するツイート1', handle: 'user1' },
+        { tweet_id: 'tw-2', text: '削除されたツイート', handle: 'user2' },
+        { tweet_id: 'tw-3', text: '存在するツイート2', handle: 'user3' },
+      ];
+
+      const result = await filterAccessibleSuggestions(suggestions, 'account-1');
+
+      expect(result).toHaveLength(2);
+      expect(result[0].tweet_id).toBe('tw-1');
+      expect(result[1].tweet_id).toBe('tw-3');
+    });
+
+    test('すべてのツイートが削除されている場合は空配列を返す', async () => {
+      getTweetMetrics.mockResolvedValueOnce([]);
+
+      const suggestions = [
+        { tweet_id: 'tw-deleted', text: '削除されたツイート', handle: 'user1' },
+      ];
+
+      const result = await filterAccessibleSuggestions(suggestions, 'account-1');
+      expect(result).toHaveLength(0);
+    });
+
+    test('すべてのツイートが存在する場合はそのまま返す', async () => {
+      getTweetMetrics.mockResolvedValueOnce([
+        { id: 'tw-1' },
+        { id: 'tw-2' }
+      ]);
+
+      const suggestions = [
+        { tweet_id: 'tw-1', text: 'ツイート1', handle: 'user1' },
+        { tweet_id: 'tw-2', text: 'ツイート2', handle: 'user2' },
+      ];
+
+      const result = await filterAccessibleSuggestions(suggestions, 'account-1');
+      expect(result).toHaveLength(2);
+    });
+
+    test('空の suggestions は空配列を返す', async () => {
+      const result = await filterAccessibleSuggestions([], 'account-1');
+      expect(result).toHaveLength(0);
+      expect(getTweetMetrics).not.toHaveBeenCalled();
+    });
+
+    test('API エラー時はフォールバックとして全 suggestions を返す', async () => {
+      getTweetMetrics.mockRejectedValueOnce(new Error('API error'));
+
+      const suggestions = [
+        { tweet_id: 'tw-1', text: 'ツイート', handle: 'user1' },
+      ];
+
+      const result = await filterAccessibleSuggestions(suggestions, 'account-1');
+      expect(result).toHaveLength(1);
+    });
+  });
+
   describe('リプライ投稿で元ツイートが削除されている場合', () => {
     afterEach(() => {
       jest.useRealTimers();
     });
 
-    test('即時投稿モードで元ツイートが削除されていた場合、下書きとして保存する', async () => {
+    test('削除済みツイートはAI生成前にフィルタされ、リプライを試みない', async () => {
       jest.useFakeTimers();
       jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
 
-      // Mock: postTweet throws 403 for deleted tweet
-      postTweet.mockRejectedValueOnce(
-        new Error('X API error 403: {"detail":"You attempted to reply to a Tweet that is deleted or not visible to you.","title":"Forbidden","status":403}')
-      );
+      // getTweetMetrics returns empty = all tweets deleted
+      getTweetMetrics.mockResolvedValueOnce([]);
 
       getReplySuggestions.mockResolvedValueOnce([
         { tweet_id: 'tw-deleted', text: '削除されたツイート', handle: 'rival' }
       ]);
+
+      mockGenerateTweets.mockClear();
+      postTweet.mockClear();
 
       const insertCalls = [];
       const updateCalls = [];
@@ -771,6 +846,13 @@ describe('auto-poster', () => {
             })
           };
         }
+        if (table === 'competitor_tweets') {
+          return {
+            delete: jest.fn().mockReturnValue({
+              in: jest.fn().mockResolvedValue({ error: null })
+            })
+          };
+        }
         return {
           insert: jest.fn((data) => {
             insertCalls.push({ table, data });
@@ -782,12 +864,16 @@ describe('auto-poster', () => {
 
       await checkAndRunAutoPosts();
 
-      // Generated content should be saved as draft (not lost)
-      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
-      expect(postInserts.length).toBeGreaterThanOrEqual(1);
-      const draftInsert = postInserts.find(c => c.data.status === 'draft');
-      expect(draftInsert).toBeDefined();
-      expect(draftInsert.data.error_message).toContain('元ツイートが削除された');
+      // AI generation should NOT be called (tweet was filtered out before)
+      expect(mockGenerateTweets).not.toHaveBeenCalled();
+      // postTweet should NOT be called
+      expect(postTweet).not.toHaveBeenCalled();
+
+      // auto_post_logs should record the failure
+      const logInserts = insertCalls.filter(c => c.table === 'auto_post_logs');
+      expect(logInserts.length).toBeGreaterThanOrEqual(1);
+      expect(logInserts[0].data.status).toBe('failed');
+      expect(logInserts[0].data.error_message).toContain('削除済み');
     });
   });
 });
