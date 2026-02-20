@@ -20,13 +20,14 @@ jest.mock('../../server/db/database', () => {
 });
 
 // Mock ai-provider
+const mockGenerateTweets = jest.fn().mockResolvedValue({
+  provider: 'claude',
+  model: 'claude-haiku-4-5-20251001',
+  candidates: [{ text: '{"suggestions":[{"category":"content","priority":"high","title":"テスト提案","description":"テストの説明","action":"テストアクション"}]}' }]
+});
 jest.mock('../../server/services/ai-provider', () => ({
   getAIProvider: jest.fn(() => ({
-    generateTweets: jest.fn().mockResolvedValue({
-      provider: 'claude',
-      model: 'claude-haiku-4-5-20251001',
-      candidates: [{ text: '{"suggestions":[{"category":"content","priority":"high","title":"テスト提案","description":"テストの説明","action":"テストアクション"}]}' }]
-    })
+    generateTweets: mockGenerateTweets
   }))
 }));
 
@@ -57,6 +58,7 @@ const {
   summarizePost,
   buildAnalysisPrompt,
   analyzePostPerformance,
+  generateImprovementInsights,
   buildPerformanceContextBlock,
   MIN_POSTS_FOR_ANALYSIS,
   ANALYSIS_WINDOW_POSTS,
@@ -65,6 +67,7 @@ const {
 } = require('../../server/services/tweet-improver');
 
 const { getDb } = require('../../server/db/database');
+const { getAIProvider } = require('../../server/services/ai-provider');
 
 describe('tweet-improver', () => {
   describe('定数', () => {
@@ -433,6 +436,82 @@ describe('tweet-improver', () => {
       expect(prompt).toContain('120字');
       expect(prompt).toContain('JSON形式');
       expect(prompt).toContain('suggestions');
+    });
+  });
+
+  describe('generateImprovementInsights', () => {
+    function setupInsightsMock(posts) {
+      const queryChain = {};
+      queryChain.select = jest.fn().mockReturnValue(queryChain);
+      queryChain.eq = jest.fn().mockReturnValue(queryChain);
+      queryChain.not = jest.fn().mockReturnValue(queryChain);
+      queryChain.gt = jest.fn().mockReturnValue(queryChain);
+      queryChain.order = jest.fn().mockReturnValue(queryChain);
+      queryChain.limit = jest.fn().mockResolvedValue({ data: posts, error: null });
+
+      const insertChain = {};
+      insertChain.select = jest.fn().mockReturnValue(insertChain);
+      insertChain.single = jest.fn().mockResolvedValue({ data: { id: 99 }, error: null });
+
+      getDb.mockReturnValue({
+        from: jest.fn((table) => {
+          if (table === 'improvement_analyses') return { insert: jest.fn().mockReturnValue(insertChain) };
+          return queryChain;
+        })
+      });
+    }
+
+    const samplePosts = Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      text: `テスト投稿${i + 1}`,
+      post_type: 'new',
+      theme_category: i % 2 === 0 ? 'T-A' : 'T-B',
+      engagement_rate: (i + 1) * 0.5,
+      like_count: (i + 1) * 5,
+      retweet_count: i,
+      reply_count: 1,
+      quote_count: 0,
+      impression_count: (i + 1) * 100,
+      bookmark_count: 0,
+      ai_provider: 'claude',
+      ai_model: 'claude-sonnet-4-20250514',
+      posted_at: `2026-01-${String(i + 1).padStart(2, '0')}T09:00:00Z`
+    }));
+
+    beforeEach(() => {
+      mockGenerateTweets.mockClear();
+      getAIProvider.mockClear();
+    });
+
+    test('modelId を指定すると AI プロバイダに model が渡される', async () => {
+      setupInsightsMock(samplePosts);
+
+      await generateImprovementInsights('account-1', 'claude', 'claude-haiku-4-5-20251001');
+
+      expect(getAIProvider).toHaveBeenCalledWith('claude');
+      expect(mockGenerateTweets).toHaveBeenCalledTimes(1);
+      const opts = mockGenerateTweets.mock.calls[0][1];
+      expect(opts.model).toBe('claude-haiku-4-5-20251001');
+      expect(opts.taskType).toBe('performance_summary');
+    });
+
+    test('modelId を指定しない場合は model が opts に含まれない', async () => {
+      setupInsightsMock(samplePosts);
+
+      await generateImprovementInsights('account-1', 'claude');
+
+      expect(mockGenerateTweets).toHaveBeenCalledTimes(1);
+      const opts = mockGenerateTweets.mock.calls[0][1];
+      expect(opts.model).toBeUndefined();
+      expect(opts.taskType).toBe('performance_summary');
+    });
+
+    test('provider 未指定時はデフォルトで claude が使われる', async () => {
+      setupInsightsMock(samplePosts);
+
+      await generateImprovementInsights('account-1');
+
+      expect(getAIProvider).toHaveBeenCalledWith('claude');
     });
   });
 

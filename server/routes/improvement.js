@@ -37,8 +37,8 @@ router.get('/history', async (req, res) => {
 // POST /api/improvement/analyze - Trigger a new performance analysis
 router.post('/analyze', async (req, res) => {
   try {
-    const { accountId, provider } = req.body;
-    const result = await generateImprovementInsights(accountId, provider);
+    const { accountId, provider, model } = req.body;
+    const result = await generateImprovementInsights(accountId, provider, model);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });

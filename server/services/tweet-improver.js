@@ -254,7 +254,7 @@ function summarizePost(post) {
  * Generate AI-powered improvement insights based on performance analysis.
  * Uses the AI provider to analyze patterns and generate actionable suggestions.
  */
-async function generateImprovementInsights(accountId, providerName) {
+async function generateImprovementInsights(accountId, providerName, modelId) {
   const analysis = await analyzePostPerformance(accountId);
 
   if (analysis.status === 'insufficient_data') {
@@ -270,11 +270,16 @@ async function generateImprovementInsights(accountId, providerName) {
 
   const analysisPrompt = buildAnalysisPrompt(analysis);
 
-  const result = await provider.generateTweets('パフォーマンス分析', {
+  const opts = {
     taskType: 'performance_summary',
     accountId,
     customPrompt: analysisPrompt
-  });
+  };
+  if (modelId) {
+    opts.model = modelId;
+  }
+
+  const result = await provider.generateTweets('パフォーマンス分析', opts);
 
   // Parse the AI response for structured suggestions
   const responseText = result.candidates?.[0]?.text || '';

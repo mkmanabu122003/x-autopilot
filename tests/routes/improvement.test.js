@@ -154,7 +154,27 @@ describe('improvement routes', () => {
       const res = await request(app).post('/api/improvement/analyze').send({ accountId: 1, provider: 'claude' });
       expect(res.status).toBe(200);
       expect(res.body.status).toBe('ok');
-      expect(mockGenerateImprovementInsights).toHaveBeenCalledWith(1, 'claude');
+      expect(mockGenerateImprovementInsights).toHaveBeenCalledWith(1, 'claude', undefined);
+    });
+
+    test('model パラメータを指定して分析を実行する', async () => {
+      const result = {
+        status: 'ok',
+        analysisId: 2,
+        analysis: { postCount: 10 },
+        suggestions: [{ category: 'content', title: 'テスト' }]
+      };
+      mockGenerateImprovementInsights.mockResolvedValue(result);
+
+      const app = createApp();
+      const res = await request(app).post('/api/improvement/analyze').send({
+        accountId: 1,
+        provider: 'claude',
+        model: 'claude-haiku-4-5-20251001'
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('ok');
+      expect(mockGenerateImprovementInsights).toHaveBeenCalledWith(1, 'claude', 'claude-haiku-4-5-20251001');
     });
 
     test('データ不足時は insufficient_data ステータスを返す', async () => {
