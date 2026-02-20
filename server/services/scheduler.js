@@ -5,6 +5,7 @@ const { calculateEngagementRate } = require('./analytics');
 const { BatchManager } = require('./batch-manager');
 const { checkAndRunAutoPosts, isDeletedTweetError } = require('./auto-poster');
 const { refreshOwnPostMetrics, recordFollowerSnapshot } = require('./growth-analytics');
+const { generateImprovementInsights, autoAdjustSettings } = require('./tweet-improver');
 const { logError, logWarn, logInfo } = require('./app-logger');
 
 function startScheduler() {
@@ -57,6 +58,11 @@ function startScheduler() {
   // Record follower snapshots daily at 9 AM
   cron.schedule('0 9 * * *', async () => {
     await recordAllFollowerSnapshots();
+  });
+
+  // Run tweet improvement analysis weekly (Monday 6 AM JST = Sunday 21:00 UTC)
+  cron.schedule('0 21 * * 0', async () => {
+    await runWeeklyImprovementAnalysis();
   });
 
   console.log('Scheduler started');
@@ -250,4 +256,32 @@ async function fetchAllCompetitorTweets() {
   }
 }
 
-module.exports = { startScheduler, processScheduledPosts, fetchAllCompetitorTweets };
+async function runWeeklyImprovementAnalysis() {
+  try {
+    const sb = getDb();
+    const { data: accounts } = await sb.from('x_accounts').select('id');
+    if (!accounts) return;
+
+    for (const account of accounts) {
+      try {
+        // Generate AI-powered improvement insights
+        await generateImprovementInsights(account.id);
+        // Auto-adjust settings based on performance data
+        await autoAdjustSettings(account.id);
+        console.log(`Weekly improvement analysis completed for account ${account.id}`);
+      } catch (err) {
+        console.error(`Improvement analysis failed for account ${account.id}:`, err.message);
+        logError('tweet_improver', `週次改善分析に失敗 (アカウント: ${account.id})`, {
+          accountId: account.id,
+          error: err.message,
+          stack: err.stack
+        });
+      }
+    }
+  } catch (err) {
+    console.error('Error running weekly improvement analysis:', err.message);
+    logError('tweet_improver', '週次改善分析の実行に失敗', { error: err.message });
+  }
+}
+
+module.exports = { startScheduler, processScheduledPosts, fetchAllCompetitorTweets, runWeeklyImprovementAnalysis };

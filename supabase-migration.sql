@@ -338,3 +338,47 @@ CREATE INDEX IF NOT EXISTS idx_theme_categories_account
 
 -- Track which theme category was used for each generated post
 ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS theme_category TEXT;
+
+-- ============================================
+-- Tweet Pattern Log for structural pattern rotation
+-- ============================================
+CREATE TABLE IF NOT EXISTS tweet_pattern_log (
+  id SERIAL PRIMARY KEY,
+  account_id INTEGER REFERENCES x_accounts(id) ON DELETE CASCADE,
+  opening_pattern TEXT,
+  development_pattern TEXT,
+  closing_pattern TEXT,
+  expressions JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_tweet_pattern_log_account
+  ON tweet_pattern_log(account_id);
+CREATE INDEX IF NOT EXISTS idx_tweet_pattern_log_created
+  ON tweet_pattern_log(created_at);
+
+-- ============================================
+-- Tweet Improvement Analysis (Auto-improvement feedback loop)
+-- ============================================
+
+-- Stores periodic performance analysis results and AI-generated improvement suggestions
+CREATE TABLE IF NOT EXISTS improvement_analyses (
+  id SERIAL PRIMARY KEY,
+  account_id INTEGER REFERENCES x_accounts(id) ON DELETE CASCADE,
+  post_count INTEGER NOT NULL DEFAULT 0,
+  avg_engagement_rate REAL DEFAULT 0,
+  avg_impressions INTEGER DEFAULT 0,
+  top_posts JSONB DEFAULT '[]',
+  bottom_posts JSONB DEFAULT '[]',
+  category_analysis JSONB DEFAULT '[]',
+  time_analysis JSONB DEFAULT '{}',
+  text_analysis JSONB DEFAULT '{}',
+  suggestions JSONB DEFAULT '[]',
+  adjustments_applied JSONB,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_improvement_analyses_account
+  ON improvement_analyses(account_id);
+CREATE INDEX IF NOT EXISTS idx_improvement_analyses_created
+  ON improvement_analyses(created_at);

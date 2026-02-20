@@ -49,6 +49,11 @@ jest.mock('../../server/services/growth-analytics', () => ({
   recordFollowerSnapshot: jest.fn()
 }));
 
+jest.mock('../../server/services/tweet-improver', () => ({
+  generateImprovementInsights: jest.fn().mockResolvedValue({ status: 'ok' }),
+  autoAdjustSettings: jest.fn().mockResolvedValue({ adjusted: false })
+}));
+
 jest.mock('node-cron', () => ({
   schedule: jest.fn()
 }), { virtual: true });
