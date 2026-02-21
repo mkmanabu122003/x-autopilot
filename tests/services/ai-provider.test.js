@@ -514,4 +514,62 @@ describe('ai-provider', () => {
       expect(result[0].expressions).toEqual([]);
     });
   });
+
+  describe('AIProvider.buildFeedbackRulesBlock', () => {
+    let provider;
+    const { getDb } = require('../../server/db/database');
+
+    beforeEach(() => {
+      provider = new AIProvider();
+      jest.clearAllMocks();
+    });
+
+    test('accountId が無い場合は空文字列を返す', async () => {
+      const result = await provider.buildFeedbackRulesBlock(null);
+      expect(result).toBe('');
+    });
+
+    test('accountId が undefined の場合は空文字列を返す', async () => {
+      const result = await provider.buildFeedbackRulesBlock(undefined);
+      expect(result).toBe('');
+    });
+
+    test('ルールがない場合は空文字列を返す', async () => {
+      const mockDb = getDb();
+      const chain = mockDb.from('prompt_feedback_rules');
+      chain.order = jest.fn().mockResolvedValue({ data: [], error: null });
+
+      const result = await provider.buildFeedbackRulesBlock(1);
+      expect(result).toBe('');
+    });
+
+    test('ルールがある場合はフォーマットされたブロックを返す', async () => {
+      const rules = [
+        { rule_text: 'カジュアルな表現を使う', category: 'tone' },
+        { rule_text: '数字を含める', category: 'content' },
+        { rule_text: '改行を多めに', category: 'structure' }
+      ];
+      const mockDb = getDb();
+      const chain = mockDb.from('prompt_feedback_rules');
+      chain.order = jest.fn().mockResolvedValue({ data: rules, error: null });
+
+      const result = await provider.buildFeedbackRulesBlock(1);
+      expect(result).toContain('ユーザーフィードバックルール');
+      expect(result).toContain('カジュアルな表現を使う');
+      expect(result).toContain('数字を含める');
+      expect(result).toContain('改行を多めに');
+      expect(result).toContain('トーン');
+      expect(result).toContain('内容');
+      expect(result).toContain('構造');
+    });
+
+    test('DBエラー時は空文字列を返す（エラーを投げない）', async () => {
+      const mockDb = getDb();
+      const chain = mockDb.from('prompt_feedback_rules');
+      chain.order = jest.fn().mockRejectedValue(new Error('DB error'));
+
+      const result = await provider.buildFeedbackRulesBlock(1);
+      expect(result).toBe('');
+    });
+  });
 });
