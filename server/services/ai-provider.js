@@ -111,12 +111,17 @@ class AIProvider {
         .eq('task_type', options.taskType)
         .eq('is_custom', true)
         .single();
-      if (custom && custom.system_prompt) return custom.system_prompt;
+      if (custom && custom.system_prompt) {
+        const feedbackBlock = await this.buildFeedbackRulesBlock(options.accountId);
+        return feedbackBlock ? `${custom.system_prompt}\n\n${feedbackBlock}` : custom.system_prompt;
+      }
     }
 
     // Check for task-specific default prompt
     if (options.taskType && defaultPrompts[options.taskType]) {
-      return defaultPrompts[options.taskType].system;
+      let prompt = defaultPrompts[options.taskType].system;
+      const feedbackBlock = await this.buildFeedbackRulesBlock(options.accountId);
+      return feedbackBlock ? `${prompt}\n\n${feedbackBlock}` : prompt;
     }
 
     // Fall back to the global system prompt from settings
@@ -125,7 +130,47 @@ class AIProvider {
     prompt = prompt.replace('{postType}', options.postType || '新規ツイート');
     prompt = prompt.replace('{userInput}', options.theme || '');
     prompt = prompt.replace('{competitorContext}', options.competitorContext || '');
-    return prompt;
+    const feedbackBlock = await this.buildFeedbackRulesBlock(options.accountId);
+    return feedbackBlock ? `${prompt}\n\n${feedbackBlock}` : prompt;
+  }
+
+  async buildFeedbackRulesBlock(accountId) {
+    if (!accountId) return '';
+    try {
+      const sb = getDb();
+      const { data: rules } = await sb.from('prompt_feedback_rules')
+        .select('rule_text, category')
+        .eq('account_id', accountId)
+        .eq('enabled', true)
+        .order('created_at', { ascending: true });
+
+      if (!rules || rules.length === 0) return '';
+
+      const categoryLabels = {
+        content: '内容',
+        tone: 'トーン',
+        structure: '構造',
+        style: '文体'
+      };
+
+      const grouped = {};
+      for (const rule of rules) {
+        const cat = rule.category || 'content';
+        if (!grouped[cat]) grouped[cat] = [];
+        grouped[cat].push(rule.rule_text);
+      }
+
+      const parts = ['## ユーザーフィードバックルール（過去のフィードバックから学習した恒久ルール。必ず遵守すること）'];
+      for (const [cat, texts] of Object.entries(grouped)) {
+        parts.push(`\n### ${categoryLabels[cat] || cat}`);
+        for (const text of texts) {
+          parts.push(`- ${text}`);
+        }
+      }
+      return parts.join('\n');
+    } catch (err) {
+      return '';
+    }
   }
 
   async getTaskModelSettings(taskType, providerName) {
