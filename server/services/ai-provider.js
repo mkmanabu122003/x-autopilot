@@ -10,8 +10,10 @@ async function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Per-request timeout in ms.  Must finish before Vercel kills the function.
-const FETCH_TIMEOUT_MS = 55_000;
+// Per-request timeout in ms.  Must finish well before the route-level timeout
+// (110 s) and Vercel's hard limit (120 s).  90 s gives heavy prompts (Opus +
+// tweet_generation) enough room while leaving a 20-30 s buffer.
+const FETCH_TIMEOUT_MS = 90_000;
 
 async function fetchWithRetry(url, options, { maxRetries = MAX_RETRIES, initialBackoffMs = INITIAL_BACKOFF_MS, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
   let lastError;
