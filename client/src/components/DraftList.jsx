@@ -296,12 +296,6 @@ export default function DraftList() {
                       type="text"
                       value={feedbackText}
                       onChange={(e) => setFeedbackText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey && feedbackText.trim()) {
-                          e.preventDefault();
-                          handleRegenerate(draft);
-                        }
-                      }}
                       placeholder="例: もっとカジュアルに、数字を入れて"
                       className="flex-1 px-3 py-1.5 border border-amber-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-400 focus:border-transparent bg-white"
                     />
