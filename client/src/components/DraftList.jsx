@@ -28,7 +28,7 @@ export default function DraftList() {
     if (!window.confirm('この下書きを削除しますか？')) return;
     try {
       await del(`/tweets/drafts/${id}`);
-      setDrafts(drafts.filter(d => d.id !== id));
+      setDrafts(prev => prev.filter(d => d.id !== id));
     } catch (err) {
       // ignore
     }
@@ -54,7 +54,7 @@ export default function DraftList() {
     setPosting(id);
     try {
       await post(`/tweets/drafts/${id}/post`);
-      setDrafts(drafts.filter(d => d.id !== id));
+      setDrafts(prev => prev.filter(d => d.id !== id));
     } catch (err) {
       alert(`投稿エラー: ${err.message}`);
     } finally {
@@ -70,7 +70,7 @@ export default function DraftList() {
       });
       setSchedulingId(null);
       setScheduleTime('');
-      setDrafts(drafts.filter(d => d.id !== id));
+      setDrafts(prev => prev.filter(d => d.id !== id));
     } catch (err) {
       // ignore
     }

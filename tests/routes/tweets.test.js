@@ -273,4 +273,90 @@ describe('tweets routes', () => {
       expect(res.status).toBe(200);
     });
   });
+
+  describe('POST /api/tweets/drafts/:id/post', () => {
+    beforeEach(() => {
+      postTweet.mockClear();
+      postTweet.mockResolvedValue({ data: { id: 'tweet-999' } });
+    });
+
+    test('下書きを投稿し、status を posted に更新する', async () => {
+      const app = createApp();
+      const { getDb } = require('../../server/db/database');
+      const mockChain = getDb().from();
+      mockChain.single.mockResolvedValueOnce({
+        data: { id: 1, text: 'テスト下書き', account_id: 'acc-1', post_type: 'new', target_tweet_id: null },
+        error: null
+      });
+
+      const res = await request(app).post('/api/tweets/drafts/1/post').send({});
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('posted');
+      expect(res.body.tweet_id).toBe('tweet-999');
+      expect(postTweet).toHaveBeenCalledWith('テスト下書き', { accountId: 'acc-1' });
+      expect(mockChain.update).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'posted', tweet_id: 'tweet-999' })
+      );
+    });
+
+    test('リプライ下書きの投稿時に replyToId が渡される', async () => {
+      const app = createApp();
+      const { getDb } = require('../../server/db/database');
+      const mockChain = getDb().from();
+      mockChain.single.mockResolvedValueOnce({
+        data: { id: 2, text: 'リプライ下書き', account_id: 'acc-1', post_type: 'reply', target_tweet_id: 'target-123' },
+        error: null
+      });
+
+      const res = await request(app).post('/api/tweets/drafts/2/post').send({});
+      expect(res.status).toBe(200);
+      expect(postTweet).toHaveBeenCalledWith('リプライ下書き', { accountId: 'acc-1', replyToId: 'target-123' });
+    });
+
+    test('引用RT下書きの投稿時に quoteTweetId が渡される', async () => {
+      const app = createApp();
+      const { getDb } = require('../../server/db/database');
+      const mockChain = getDb().from();
+      mockChain.single.mockResolvedValueOnce({
+        data: { id: 3, text: '引用RT下書き', account_id: 'acc-1', post_type: 'quote', target_tweet_id: 'target-456' },
+        error: null
+      });
+
+      const res = await request(app).post('/api/tweets/drafts/3/post').send({});
+      expect(res.status).toBe(200);
+      expect(postTweet).toHaveBeenCalledWith('引用RT下書き', { accountId: 'acc-1', quoteTweetId: 'target-456' });
+    });
+
+    test('下書きが見つからない場合は 404 エラー', async () => {
+      const app = createApp();
+      const { getDb } = require('../../server/db/database');
+      const mockChain = getDb().from();
+      mockChain.single.mockResolvedValueOnce({ data: null, error: null });
+
+      const res = await request(app).post('/api/tweets/drafts/999/post').send({});
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('Draft not found');
+      expect(postTweet).not.toHaveBeenCalled();
+    });
+
+    test('X API エラー時は 500 エラーで下書きが残る', async () => {
+      const app = createApp();
+      const { getDb } = require('../../server/db/database');
+      const mockChain = getDb().from();
+      mockChain.single.mockResolvedValueOnce({
+        data: { id: 4, text: 'エラーテスト', account_id: 'acc-1', post_type: 'new', target_tweet_id: null },
+        error: null
+      });
+      postTweet.mockRejectedValueOnce(new Error('X API rate limit exceeded'));
+
+      // Clear update mock to isolate this test
+      mockChain.update.mockClear();
+
+      const res = await request(app).post('/api/tweets/drafts/4/post').send({});
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe('X API rate limit exceeded');
+      // update should NOT be called when X API fails - draft remains as 'draft'
+      expect(mockChain.update).not.toHaveBeenCalled();
+    });
+  });
 });
