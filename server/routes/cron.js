@@ -18,7 +18,7 @@ function verifyCronSecret(req, res) {
 // Called by Vercel Cron or external cron services (cron-job.org etc.)
 // This single endpoint handles both so only one cron-job.org job is needed.
 // Timeout race prevents Vercel from killing the function with a raw 504.
-const CRON_TIMEOUT_MS = 100_000; // 100s — below Vercel's 120s maxDuration
+const CRON_TIMEOUT_MS = 110_000; // 110s — below Vercel's 120s maxDuration
 
 router.get('/scheduled', async (req, res) => {
   if (!verifyCronSecret(req, res)) return;
