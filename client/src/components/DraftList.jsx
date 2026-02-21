@@ -25,7 +25,6 @@ export default function DraftList() {
   // Feedback rule modal state
   const [showRuleModal, setShowRuleModal] = useState(false);
   const [ruleModalFeedbackHistory, setRuleModalFeedbackHistory] = useState([]);
-  const [pendingPostDraftId, setPendingPostDraftId] = useState(null);
   const [ruleSavedCount, setRuleSavedCount] = useState(null);
 
   const fetchDrafts = async () => {
@@ -73,19 +72,6 @@ export default function DraftList() {
   };
 
   const handlePostNow = async (id) => {
-    const history = feedbackHistories[id];
-    if (history && history.length > 0) {
-      // Has feedback history - show rule modal before posting
-      setPendingPostDraftId(id);
-      setRuleModalFeedbackHistory(history);
-      setShowRuleModal(true);
-      return;
-    }
-    // No feedback history - post directly
-    await executePost(id);
-  };
-
-  const executePost = async (id) => {
     if (!window.confirm('この下書きを今すぐ投稿しますか？')) return;
     setPosting(id);
     try {
@@ -102,21 +88,6 @@ export default function DraftList() {
     } finally {
       setPosting(null);
     }
-  };
-
-  const handleRuleModalClose = () => {
-    setShowRuleModal(false);
-    const draftId = pendingPostDraftId;
-    setPendingPostDraftId(null);
-    setRuleModalFeedbackHistory([]);
-    if (draftId) {
-      executePost(draftId);
-    }
-  };
-
-  const handleRuleSaved = (count) => {
-    setRuleSavedCount(count);
-    setTimeout(() => setRuleSavedCount(null), 3000);
   };
 
   const handleSchedule = async (id) => {
@@ -182,6 +153,26 @@ export default function DraftList() {
     } catch (err) {
       // ignore
     }
+  };
+
+  // OK button: confirm feedback is done and open rule modal
+  const handleFeedbackOk = (draftId) => {
+    const history = feedbackHistories[draftId];
+    if (!history || history.length === 0) return;
+    setRuleModalFeedbackHistory(history);
+    setShowRuleModal(true);
+    // Close feedback area
+    closeFeedback();
+  };
+
+  const handleRuleModalClose = () => {
+    setShowRuleModal(false);
+    setRuleModalFeedbackHistory([]);
+  };
+
+  const handleRuleSaved = (count) => {
+    setRuleSavedCount(count);
+    setTimeout(() => setRuleSavedCount(null), 3000);
   };
 
   const postTypeLabel = (type) => {
@@ -340,6 +331,18 @@ export default function DraftList() {
                           )}
                         </button>
                       ))}
+                    </div>
+                  )}
+
+                  {/* OK button: appears when feedback history exists */}
+                  {feedbackHistories[draft.id]?.length > 0 && (
+                    <div className="border-t border-amber-200 pt-2 flex justify-end">
+                      <button
+                        onClick={() => handleFeedbackOk(draft.id)}
+                        className="px-4 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+                      >
+                        OK - 改善点をプロンプトに反映
+                      </button>
                     </div>
                   )}
                 </div>

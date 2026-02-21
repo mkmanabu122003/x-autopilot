@@ -86,9 +86,9 @@ export default function FeedbackRuleModal({ feedbackHistory, onClose, onSaved })
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
       <div className="bg-white rounded-xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
         <div className="p-4 border-b border-gray-200">
-          <h3 className="font-semibold text-gray-900">フィードバックをプロンプトに反映</h3>
+          <h3 className="font-semibold text-gray-900">改善点をプロンプトに反映</h3>
           <p className="text-xs text-gray-500 mt-1">
-            選択したルールが今後のツイート生成に恒久的に反映されます
+            フィードバックから抽出した改善点を選択してください。選択したルールが今後のツイート生成に恒久的に反映されます。
           </p>
         </div>
 
@@ -96,7 +96,7 @@ export default function FeedbackRuleModal({ feedbackHistory, onClose, onSaved })
           {decomposing && (
             <div className="flex items-center justify-center py-8">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600 mr-3" />
-              <span className="text-sm text-gray-600">フィードバックを分析中...</span>
+              <span className="text-sm text-gray-600">改善点を抽出中...</span>
             </div>
           )}
 
@@ -104,7 +104,7 @@ export default function FeedbackRuleModal({ feedbackHistory, onClose, onSaved })
 
           {!decomposing && rules.length === 0 && !error && (
             <p className="text-sm text-gray-500 py-4 text-center">
-              ルールを抽出できませんでした
+              改善点を抽出できませんでした
             </p>
           )}
 
@@ -161,7 +161,7 @@ export default function FeedbackRuleModal({ feedbackHistory, onClose, onSaved })
             disabled={decomposing || saving || rules.length === 0}
             className="px-4 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 transition-colors"
           >
-            {saving ? '保存中...' : `${Object.values(selected).filter(Boolean).length}件のルールを保存`}
+            {saving ? '保存中...' : `${Object.values(selected).filter(Boolean).length}件の改善点を反映`}
           </button>
         </div>
       </div>
