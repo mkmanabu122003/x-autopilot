@@ -246,6 +246,29 @@ router.post('/scheduled/:id/retry', async (req, res) => {
 // DELETE /api/tweets/scheduled/:id for failed posts - allow deleting failed posts too
 // (handled by updating the existing DELETE to accept both statuses)
 
+// POST /api/tweets/drafts - Create a draft post
+router.post('/drafts', async (req, res) => {
+  try {
+    const { text, postType, targetTweetId, accountId } = req.body;
+    if (!text) return res.status(400).json({ error: 'text is required' });
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts').insert({
+      account_id: accountId,
+      text,
+      post_type: postType || 'new',
+      target_tweet_id: targetTweetId || null,
+      status: 'draft'
+    }).select('id').single();
+    if (error) throw error;
+
+    res.json({ id: data.id, status: 'draft' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/tweets/drafts - List draft posts
 router.get('/drafts', async (req, res) => {
   try {

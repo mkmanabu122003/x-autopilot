@@ -24,8 +24,27 @@ export default function TweetComposer({ mode = 'new', targetTweetId: initialTarg
     e.preventDefault();
     if (!text.trim() || isOverLimit || !currentAccount) return;
 
+    if (mode === 'draft') {
+      handleSaveDraft();
+      return;
+    }
+
     // Always show confirmation dialog to prevent wrong-account posts
     setShowConfirm(true);
+  };
+
+  const handleSaveDraft = async () => {
+    if (!text.trim() || !currentAccount) return;
+
+    const body = { text, accountId: currentAccount.id, postType: 'new' };
+
+    try {
+      await post('/tweets/drafts', body);
+      setText('');
+      onPosted && onPosted();
+    } catch (err) {
+      // error is available via the hook
+    }
   };
 
   const handleConfirmedSubmit = async () => {
@@ -88,7 +107,7 @@ export default function TweetComposer({ mode = 'new', targetTweetId: initialTarg
           <span className="text-sm font-bold text-gray-900">
             @{currentAccount.handle}
           </span>
-          <span className="text-xs text-gray-500">に投稿</span>
+          <span className="text-xs text-gray-500">{mode === 'draft' ? 'の下書き' : 'に投稿'}</span>
         </div>
       )}
 
@@ -115,6 +134,7 @@ export default function TweetComposer({ mode = 'new', targetTweetId: initialTarg
             placeholder={
               mode === 'reply' ? '返信内容を入力...'
               : mode === 'quote' ? '引用コメントを入力...'
+              : mode === 'draft' ? '下書きを入力...'
               : 'いまどうしてる？'
             }
             rows={4}
@@ -147,19 +167,21 @@ export default function TweetComposer({ mode = 'new', targetTweetId: initialTarg
             className="px-4 py-2 text-white text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             style={{ backgroundColor: currentAccount?.color || '#3B82F6' }}
           >
-            {loading ? '投稿中...' : scheduledAt ? '予約する' : '投稿する'}
+            {loading ? (mode === 'draft' ? '保存中...' : '投稿中...') : mode === 'draft' ? '下書き保存' : scheduledAt ? '予約する' : '投稿する'}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              const next = !showSchedule;
-              setShowSchedule(next);
-              if (!next) setScheduledAt('');
-            }}
-            className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          >
-            {showSchedule ? '即時投稿に戻す' : '予約投稿'}
-          </button>
+          {mode !== 'draft' && (
+            <button
+              type="button"
+              onClick={() => {
+                const next = !showSchedule;
+                setShowSchedule(next);
+                if (!next) setScheduledAt('');
+              }}
+              className="px-3 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              {showSchedule ? '即時投稿に戻す' : '予約投稿'}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowAI(true)}
