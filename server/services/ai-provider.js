@@ -86,10 +86,10 @@ const DEFAULT_EFFORT_MAP = {
 
 const DEFAULT_MAX_TOKENS_MAP = {
   competitor_analysis: 2048,
-  tweet_generation: 1500,
+  tweet_generation: 1024,
   comment_generation: 256,
-  quote_rt_generation: 2000,
-  reply_generation: 1500,
+  quote_rt_generation: 1024,
+  reply_generation: 1024,
   performance_summary: 1024
 };
 
@@ -330,11 +330,15 @@ class ClaudeProvider extends AIProvider {
   // If we don't explicitly set a budget, the API auto-allocates thinking tokens
   // which can consume the entire max_tokens budget and leave 0 tokens for output.
   // Always return a thinking config for Opus models with an appropriate budget.
+  //
+  // Content generation tasks (tweets/replies/quotes) use a minimal budget (256)
+  // because output is short (~280 chars) and thinking slows API response time
+  // significantly — often causing 90s+ timeouts on Vercel.
   getThinkingConfig(model, taskType) {
     if (!this.isOpusModel(model)) return undefined;
 
     const ANALYSIS_TASKS = ['competitor_analysis', 'performance_summary'];
-    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 1024;
+    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 256;
 
     return {
       type: 'enabled',
@@ -399,9 +403,9 @@ class ClaudeProvider extends AIProvider {
     const thinkingConfig = this.getThinkingConfig(model, taskType);
     if (thinkingConfig) {
       body.thinking = thinkingConfig;
-      // Ensure max_tokens has ample room for BOTH thinking and text output.
-      // Use 16k total to prevent thinking from starving text generation.
-      const minTokens = (thinkingConfig.budget_tokens || 0) + Math.max(maxTokens, 2000);
+      // Ensure max_tokens covers both thinking budget and text output.
+      // Keep the total modest to avoid slow API responses on Vercel.
+      const minTokens = (thinkingConfig.budget_tokens || 0) + maxTokens;
       body.max_tokens = Math.max(body.max_tokens, minTokens);
     }
 
@@ -416,16 +420,24 @@ class ClaudeProvider extends AIProvider {
       headers['anthropic-beta'] = 'prompt-caching-2024-07-31';
     }
 
+    const callStart = Date.now();
     let data = await this._callClaudeAPI(headers, body);
 
     // If the model exhausted max_tokens on thinking with no text output,
     // retry once with thinking disabled to guarantee text generation.
+    // Only retry if we have enough time budget remaining (at least 20s).
     if (thinkingConfig && this.isThinkingOnlyResponse(data)) {
-      console.warn('ClaudeProvider: thinking-only response detected (no text output). Retrying without thinking.');
-      const retryBody = { ...body };
-      delete retryBody.thinking;
-      retryBody.max_tokens = maxTokens;
-      data = await this._callClaudeAPI(headers, retryBody);
+      const elapsed = Date.now() - callStart;
+      const remaining = FETCH_TIMEOUT_MS - elapsed;
+      if (remaining > 20_000) {
+        console.warn(`ClaudeProvider: thinking-only response detected. Retrying without thinking (${Math.round(remaining / 1000)}s remaining).`);
+        const retryBody = { ...body };
+        delete retryBody.thinking;
+        retryBody.max_tokens = maxTokens;
+        data = await this._callClaudeAPI(headers, retryBody, remaining);
+      } else {
+        console.warn(`ClaudeProvider: thinking-only response detected but only ${Math.round(remaining / 1000)}s remaining. Skipping retry.`);
+      }
     }
 
     // Log detailed usage
@@ -485,13 +497,16 @@ class ClaudeProvider extends AIProvider {
 
   /**
    * Make a single Claude API call and parse/validate the response.
+   * @param {number} [timeoutMs] - Optional custom timeout for this call.
    */
-  async _callClaudeAPI(headers, body) {
-    const response = await fetchWithRetry('https://api.anthropic.com/v1/messages', {
+  async _callClaudeAPI(headers, body, timeoutMs) {
+    const fetchOptions = {
       method: 'POST',
       headers,
       body: JSON.stringify(body)
-    });
+    };
+    const retryOptions = timeoutMs ? { timeoutMs } : {};
+    const response = await fetchWithRetry('https://api.anthropic.com/v1/messages', fetchOptions, retryOptions);
 
     // Parse response as text first to handle non-JSON error responses gracefully
     const responseBody = await response.text();
