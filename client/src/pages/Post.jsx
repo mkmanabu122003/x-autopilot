@@ -5,9 +5,9 @@ import ScheduleList from '../components/ScheduleList';
 import DraftList from '../components/DraftList';
 
 const tabs = [
-  { id: 'new', label: '新規ツイート' },
-  { id: 'reply', label: 'コメント' },
-  { id: 'quote', label: '引用RT' }
+  { id: 'new', label: '新規投稿' },
+  { id: 'reply', label: 'リプ' },
+  { id: 'draft', label: '下書き' }
 ];
 
 export default function Post() {
