@@ -474,15 +474,13 @@ async function executeReplies(setting, provider, count, currentTime, forcePrevie
   let drafts = 0;
   const total = Math.min(count, suggestions.length);
 
+  // Build all AI generation promises and run them in parallel to avoid
+  // sequential timeouts (N calls × 30-45s easily exceeds the route timeout).
+  const genPromises = [];
   for (let i = 0; i < total; i++) {
-    let target = null;
-    let candidate = null;
-    let result = null;
-    try {
-      target = suggestions[i];
-
-      const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
-      const replyPrompt = `以下の元ツイートに対するリプライを3パターン作成してください。
+    const target = suggestions[i];
+    const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
+    const replyPrompt = `以下の元ツイートに対するリプライを3パターン作成してください。
 
 # 元ツイート
 投稿者：@${target.handle}
@@ -492,15 +490,36 @@ ${styleInstruction}${maxLenNote}
 
 bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
-      const genOptions = {
-        postType: 'reply',
-        accountId,
-        customPrompt: replyPrompt
-      };
-      if (setting.ai_model) genOptions.model = setting.ai_model;
-      if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
+    const genOptions = {
+      postType: 'reply',
+      accountId,
+      customPrompt: replyPrompt
+    };
+    if (setting.ai_model) genOptions.model = setting.ai_model;
+    if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
 
-      result = await provider.generateTweets(target.text, genOptions);
+    genPromises.push(
+      provider.generateTweets(target.text, genOptions).catch(err => {
+        console.error(`AutoPoster: failed to generate reply ${i + 1}:`, err.message);
+        logError('auto_post', `リプライ生成 ${i + 1} に失敗`, { accountId, error: err.message });
+        return { error: err.message };
+      })
+    );
+  }
+
+  // Wait for all AI generations to complete in parallel
+  const genResults = await Promise.all(genPromises);
+
+  // Process results sequentially (DB writes / posting are fast)
+  for (let i = 0; i < total; i++) {
+    const target = suggestions[i];
+    const result = genResults[i];
+    let candidate = null;
+    try {
+      if (result.error) {
+        errors.push(`リプライ${i + 1}: ${result.error}`);
+        continue;
+      }
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
@@ -560,8 +579,8 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
         scheduled++;
       }
     } catch (err) {
-      console.error(`AutoPoster: failed to generate/post reply ${i + 1}:`, err.message);
-      logError('auto_post', `リプライ生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
+      console.error(`AutoPoster: failed to process reply ${i + 1}:`, err.message);
+      logError('auto_post', `リプライ処理 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
 
       // If posting failed because target tweet was deleted, save generated content as draft
       if (candidate && isDeletedTweetError(err.message)) {
@@ -620,15 +639,13 @@ async function executeQuotes(setting, provider, count, currentTime, forcePreview
   let drafts = 0;
   const total = Math.min(count, suggestions.length);
 
+  // Build all AI generation promises and run them in parallel to avoid
+  // sequential timeouts (N calls × 30-45s easily exceeds the route timeout).
+  const genPromises = [];
   for (let i = 0; i < total; i++) {
-    let target = null;
-    let candidate = null;
-    let result = null;
-    try {
-      target = suggestions[i];
-
-      const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
-      const quotePrompt = `以下の元ツイートに対する引用リツイートを3パターン作成してください。
+    const target = suggestions[i];
+    const maxLenNote = setting.max_length ? `\n文字数目安: ${setting.max_length}文字以内` : '';
+    const quotePrompt = `以下の元ツイートに対する引用リツイートを3パターン作成してください。
 
 # 元ツイート
 投稿者：@${target.handle}
@@ -638,15 +655,36 @@ ${styleInstruction}${maxLenNote}
 
 bodyにはそのまま投稿できる完成テキストだけを書いてください。ラベルや注釈やハッシュタグは含めないこと。`;
 
-      const genOptions = {
-        postType: 'quote',
-        accountId,
-        customPrompt: quotePrompt
-      };
-      if (setting.ai_model) genOptions.model = setting.ai_model;
-      if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
+    const genOptions = {
+      postType: 'quote',
+      accountId,
+      customPrompt: quotePrompt
+    };
+    if (setting.ai_model) genOptions.model = setting.ai_model;
+    if (setting.max_length) genOptions.maxTokens = Math.max(1500, Math.ceil(setting.max_length * 3));
 
-      result = await provider.generateTweets(target.text, genOptions);
+    genPromises.push(
+      provider.generateTweets(target.text, genOptions).catch(err => {
+        console.error(`AutoPoster: failed to generate quote ${i + 1}:`, err.message);
+        logError('auto_post', `引用RT生成 ${i + 1} に失敗`, { accountId, error: err.message });
+        return { error: err.message };
+      })
+    );
+  }
+
+  // Wait for all AI generations to complete in parallel
+  const genResults = await Promise.all(genPromises);
+
+  // Process results sequentially (DB writes / posting are fast)
+  for (let i = 0; i < total; i++) {
+    const target = suggestions[i];
+    const result = genResults[i];
+    let candidate = null;
+    try {
+      if (result.error) {
+        errors.push(`引用RT${i + 1}: ${result.error}`);
+        continue;
+      }
 
       if (!result.candidates || result.candidates.length === 0) {
         const debug = result.debugInfo || `provider=${result.provider}, model=${result.model}`;
@@ -706,8 +744,8 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
         scheduled++;
       }
     } catch (err) {
-      console.error(`AutoPoster: failed to generate/post quote ${i + 1}:`, err.message);
-      logError('auto_post', `引用RT生成/投稿 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
+      console.error(`AutoPoster: failed to process quote ${i + 1}:`, err.message);
+      logError('auto_post', `引用RT処理 ${i + 1} に失敗`, { accountId: accountId, error: err.message });
 
       // If posting failed because target tweet was deleted, save generated content as draft
       if (candidate && isDeletedTweetError(err.message)) {
