@@ -175,19 +175,28 @@ export default function DraftList() {
     setTimeout(() => setRuleSavedCount(null), 3000);
   };
 
+  const POST_TYPES = [
+    { value: 'new', label: '新規投稿', badgeClass: 'bg-blue-100 text-blue-700 hover:bg-blue-200' },
+    { value: 'reply', label: 'リプ', badgeClass: 'bg-green-100 text-green-700 hover:bg-green-200' },
+    { value: 'quote', label: '引用RT', badgeClass: 'bg-purple-100 text-purple-700 hover:bg-purple-200' },
+  ];
+
   const postTypeLabel = (type) => {
-    switch (type) {
-      case 'reply': return 'リプライ';
-      case 'quote': return '引用RT';
-      default: return '新規';
-    }
+    const found = POST_TYPES.find(t => t.value === type);
+    return found ? found.label : '新規投稿';
   };
 
   const postTypeBadgeClass = (type) => {
-    switch (type) {
-      case 'reply': return 'bg-green-100 text-green-700';
-      case 'quote': return 'bg-purple-100 text-purple-700';
-      default: return 'bg-blue-100 text-blue-700';
+    const found = POST_TYPES.find(t => t.value === type);
+    return found ? found.badgeClass : 'bg-blue-100 text-blue-700 hover:bg-blue-200';
+  };
+
+  const handleChangePostType = async (draftId, newType) => {
+    try {
+      await put(`/tweets/drafts/${draftId}`, { postType: newType });
+      setDrafts(prev => prev.map(d => d.id === draftId ? { ...d, post_type: newType } : d));
+    } catch (err) {
+      // ignore
     }
   };
 
@@ -234,8 +243,20 @@ export default function DraftList() {
             <div className="space-y-2">
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <span className={`inline-block px-2 py-0.5 text-xs rounded mb-1 ${postTypeBadgeClass(draft.post_type)}`}>
-                    {postTypeLabel(draft.post_type)}
+                  <span className="inline-flex gap-0.5 mb-1">
+                    {POST_TYPES.map(pt => (
+                      <button
+                        key={pt.value}
+                        onClick={() => handleChangePostType(draft.id, pt.value)}
+                        className={`px-2 py-0.5 text-xs rounded transition-colors ${
+                          draft.post_type === pt.value
+                            ? pt.badgeClass + ' font-bold'
+                            : 'bg-gray-50 text-gray-400 hover:bg-gray-100'
+                        }`}
+                      >
+                        {pt.label}
+                      </button>
+                    ))}
                   </span>
                   {draft.ai_provider && (
                     <span className="inline-block px-2 py-0.5 text-xs bg-gray-100 text-gray-500 rounded mb-1 ml-1">
