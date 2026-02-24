@@ -326,12 +326,24 @@ router.get('/drafts', async (req, res) => {
 // PUT /api/tweets/drafts/:id - Edit a draft post
 router.put('/drafts/:id', async (req, res) => {
   try {
-    const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'text is required' });
+    const { text, postType } = req.body;
+    const updates = {};
+    if (text) updates.text = text;
+    if (postType) {
+      const validTypes = ['new', 'reply', 'quote'];
+      if (!validTypes.includes(postType)) {
+        return res.status(400).json({ error: 'Invalid postType. Must be one of: new, reply, quote' });
+      }
+      updates.post_type = postType;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'text or postType is required' });
+    }
 
     const sb = getDb();
     const { data, error } = await sb.from('my_posts')
-      .update({ text })
+      .update(updates)
       .eq('id', req.params.id)
       .eq('status', 'draft')
       .select('id');
