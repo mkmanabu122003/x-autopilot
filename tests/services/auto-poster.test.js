@@ -730,6 +730,156 @@ describe('auto-poster', () => {
     });
   });
 
+  describe('リプライ・引用RTのAI生成が並列実行される', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    test('リプライ3件のAI生成が Promise.all で同時に呼ばれる', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      // Track call order to prove parallel execution
+      const callTimestamps = [];
+      mockGenerateTweets.mockClear();
+      mockGenerateTweets.mockImplementation(() => {
+        callTimestamps.push(Date.now());
+        return Promise.resolve({
+          provider: 'claude',
+          model: 'claude-sonnet-4-20250514',
+          candidates: [
+            { text: 'リプライテスト', label: 'test', hashtags: [] },
+          ]
+        });
+      });
+
+      getReplySuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-1', text: 'ターゲット1', handle: 'rival1' },
+        { tweet_id: 'tw-2', text: 'ターゲット2', handle: 'rival2' },
+        { tweet_id: 'tw-3', text: 'ターゲット3', handle: 'rival3' },
+      ]);
+
+      const insertCalls = [];
+      const updateCalls = [];
+      const mockFrom = jest.fn((table) => {
+        if (table === 'auto_post_settings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                data: [{
+                  id: 'setting-reply-parallel',
+                  account_id: 'account-1',
+                  post_type: 'reply',
+                  enabled: true,
+                  schedule_times: '20:50',
+                  posts_per_day: 3,
+                  schedule_mode: 'draft',
+                  last_run_date: null,
+                  last_run_times: '',
+                  x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+                }],
+                error: null
+              })
+            }),
+            update: jest.fn((data) => {
+              updateCalls.push({ table, data });
+              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            })
+          };
+        }
+        return {
+          insert: jest.fn((data) => {
+            insertCalls.push({ table, data });
+            return Promise.resolve({ error: null });
+          })
+        };
+      });
+      getDb.mockReturnValue({ from: mockFrom });
+
+      await checkAndRunAutoPosts();
+
+      // All 3 AI calls should have been made
+      expect(mockGenerateTweets).toHaveBeenCalledTimes(3);
+      // All calls should happen at virtually the same time (parallel)
+      // With fake timers, all timestamps should be identical
+      expect(new Set(callTimestamps).size).toBe(1);
+      // 3 draft inserts should be created
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts).toHaveLength(3);
+      postInserts.forEach(p => expect(p.data.status).toBe('draft'));
+    });
+
+    test('リプライ生成で1件がエラーでも他の件は成功する', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date('2026-02-18T11:50:00Z'));
+
+      mockGenerateTweets.mockClear();
+      mockGenerateTweets
+        .mockResolvedValueOnce({
+          provider: 'claude', model: 'claude-sonnet-4-20250514',
+          candidates: [{ text: 'リプライ1', label: 'test', hashtags: [] }]
+        })
+        .mockRejectedValueOnce(new Error('API error'))
+        .mockResolvedValueOnce({
+          provider: 'claude', model: 'claude-sonnet-4-20250514',
+          candidates: [{ text: 'リプライ3', label: 'test', hashtags: [] }]
+        });
+
+      getReplySuggestions.mockResolvedValueOnce([
+        { tweet_id: 'tw-1', text: 'ターゲット1', handle: 'rival1' },
+        { tweet_id: 'tw-2', text: 'ターゲット2', handle: 'rival2' },
+        { tweet_id: 'tw-3', text: 'ターゲット3', handle: 'rival3' },
+      ]);
+
+      const insertCalls = [];
+      const updateCalls = [];
+      const mockFrom = jest.fn((table) => {
+        if (table === 'auto_post_settings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                data: [{
+                  id: 'setting-reply-partial',
+                  account_id: 'account-1',
+                  post_type: 'reply',
+                  enabled: true,
+                  schedule_times: '20:50',
+                  posts_per_day: 3,
+                  schedule_mode: 'draft',
+                  last_run_date: null,
+                  last_run_times: '',
+                  x_accounts: { display_name: 'Test', handle: 'test', default_ai_provider: 'claude' }
+                }],
+                error: null
+              })
+            }),
+            update: jest.fn((data) => {
+              updateCalls.push({ table, data });
+              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            })
+          };
+        }
+        return {
+          insert: jest.fn((data) => {
+            insertCalls.push({ table, data });
+            return Promise.resolve({ error: null });
+          })
+        };
+      });
+      getDb.mockReturnValue({ from: mockFrom });
+
+      await checkAndRunAutoPosts();
+
+      // 3 calls made, 1 failed, 2 succeeded → 2 drafts + 1 log
+      const postInserts = insertCalls.filter(c => c.table === 'my_posts');
+      expect(postInserts).toHaveLength(2);
+      // Execution log should have 'partial' status
+      const logInserts = insertCalls.filter(c => c.table === 'auto_post_logs');
+      expect(logInserts).toHaveLength(1);
+      expect(logInserts[0].data.status).toBe('partial');
+    });
+  });
+
   describe('リプライ投稿で元ツイートが削除されている場合', () => {
     afterEach(() => {
       jest.useRealTimers();

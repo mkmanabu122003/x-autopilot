@@ -373,7 +373,7 @@ describe('ai-provider', () => {
       const tasks = ['tweet_generation', 'reply_generation', 'quote_rt_generation', 'comment_generation'];
       for (const task of tasks) {
         const config = provider.getThinkingConfig('claude-opus-4-6', task);
-        expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
+        expect(config).toEqual({ type: 'enabled', budget_tokens: 256 });
       }
     });
 
