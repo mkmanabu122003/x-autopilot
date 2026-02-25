@@ -329,20 +329,21 @@ class ClaudeProvider extends AIProvider {
   // Opus 4+ models have thinking enabled by default.
   // If we don't explicitly set a budget, the API auto-allocates thinking tokens
   // which can consume the entire max_tokens budget and leave 0 tokens for output.
-  // Always return a thinking config for Opus models with an appropriate budget.
   //
-  // Content generation tasks (tweets/replies/quotes) use a minimal budget (256)
-  // because output is short (~280 chars) and thinking slows API response time
-  // significantly — often causing 90s+ timeouts on Vercel.
+  // Content generation tasks (tweets/replies/quotes) disable thinking entirely
+  // because: (1) output is short (~280 chars) and doesn't need deep reasoning,
+  // (2) the API minimum thinking budget is 1024 tokens which adds significant
+  //     latency — often causing 90s+ timeouts on Vercel.
+  // Analysis tasks keep thinking enabled with a generous budget.
   getThinkingConfig(model, taskType) {
     if (!this.isOpusModel(model)) return undefined;
 
     const ANALYSIS_TASKS = ['competitor_analysis', 'performance_summary'];
-    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 256;
+    if (!ANALYSIS_TASKS.includes(taskType)) return undefined;
 
     return {
       type: 'enabled',
-      budget_tokens: budgetTokens
+      budget_tokens: 2048
     };
   }
 
