@@ -246,6 +246,29 @@ router.post('/scheduled/:id/retry', async (req, res) => {
 // DELETE /api/tweets/scheduled/:id for failed posts - allow deleting failed posts too
 // (handled by updating the existing DELETE to accept both statuses)
 
+// POST /api/tweets/drafts - Create a draft post
+router.post('/drafts', async (req, res) => {
+  try {
+    const { text, postType, targetTweetId, accountId } = req.body;
+    if (!text) return res.status(400).json({ error: 'text is required' });
+    if (!accountId) return res.status(400).json({ error: 'accountId is required' });
+
+    const sb = getDb();
+    const { data, error } = await sb.from('my_posts').insert({
+      account_id: accountId,
+      text,
+      post_type: postType || 'new',
+      target_tweet_id: targetTweetId || null,
+      status: 'draft'
+    }).select('id').single();
+    if (error) throw error;
+
+    res.json({ id: data.id, status: 'draft' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // GET /api/tweets/drafts - List draft posts
 router.get('/drafts', async (req, res) => {
   try {
@@ -303,12 +326,24 @@ router.get('/drafts', async (req, res) => {
 // PUT /api/tweets/drafts/:id - Edit a draft post
 router.put('/drafts/:id', async (req, res) => {
   try {
-    const { text } = req.body;
-    if (!text) return res.status(400).json({ error: 'text is required' });
+    const { text, postType } = req.body;
+    const updates = {};
+    if (text) updates.text = text;
+    if (postType) {
+      const validTypes = ['new', 'reply', 'quote'];
+      if (!validTypes.includes(postType)) {
+        return res.status(400).json({ error: 'Invalid postType. Must be one of: new, reply, quote' });
+      }
+      updates.post_type = postType;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'text or postType is required' });
+    }
 
     const sb = getDb();
     const { data, error } = await sb.from('my_posts')
-      .update({ text })
+      .update(updates)
       .eq('id', req.params.id)
       .eq('status', 'draft')
       .select('id');

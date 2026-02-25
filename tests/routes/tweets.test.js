@@ -245,11 +245,29 @@ describe('tweets routes', () => {
   });
 
   describe('PUT /api/tweets/drafts/:id', () => {
-    test('text が未指定の場合は 400 エラー', async () => {
+    test('text も postType も未指定の場合は 400 エラー', async () => {
       const app = createApp();
       const res = await request(app).put('/api/tweets/drafts/123').send({});
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('text is required');
+      expect(res.body.error).toBe('text or postType is required');
+    });
+
+    test('postType のみで下書きの投稿タイプを変更できる', async () => {
+      const app = createApp();
+      const { getDb } = require('../../server/db/database');
+      const mockChain = getDb().from();
+      mockChain.select.mockResolvedValueOnce({ data: [{ id: '123' }], error: null });
+
+      const res = await request(app).put('/api/tweets/drafts/123').send({ postType: 'reply' });
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+    });
+
+    test('不正な postType は 400 エラー', async () => {
+      const app = createApp();
+      const res = await request(app).put('/api/tweets/drafts/123').send({ postType: 'invalid' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Invalid postType/);
     });
   });
 
@@ -271,6 +289,44 @@ describe('tweets routes', () => {
 
       const res = await request(app).post('/api/tweets/scheduled/123/retry').send({});
       expect(res.status).toBe(200);
+    });
+  });
+
+  describe('POST /api/tweets/drafts', () => {
+    test('text が未指定の場合は 400 エラー', async () => {
+      const app = createApp();
+      const res = await request(app).post('/api/tweets/drafts').send({ accountId: 'acc-1' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('text is required');
+    });
+
+    test('accountId が未指定の場合は 400 エラー', async () => {
+      const app = createApp();
+      const res = await request(app).post('/api/tweets/drafts').send({ text: 'draft text' });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('accountId is required');
+    });
+
+    test('正常な下書き作成は draft ステータスを返す', async () => {
+      const app = createApp();
+      const res = await request(app).post('/api/tweets/drafts').send({
+        text: '下書きテスト',
+        accountId: 'acc-1'
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('draft');
+    });
+
+    test('postType を指定して下書きを作成できる', async () => {
+      const app = createApp();
+      const res = await request(app).post('/api/tweets/drafts').send({
+        text: 'リプライ下書き',
+        accountId: 'acc-1',
+        postType: 'reply',
+        targetTweetId: 'tweet-123'
+      });
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('draft');
     });
   });
 
