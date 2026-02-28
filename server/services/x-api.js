@@ -39,8 +39,8 @@ function setCache(key, data, ttl) {
 async function checkXApiBudget() {
   try {
     const sb = getDb();
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const { getStartOfMonthJST } = require('../utils/date-utils');
+    const startOfMonth = getStartOfMonthJST();
 
     const { data: usageRows } = await sb.from('api_usage_log')
       .select('cost_usd')

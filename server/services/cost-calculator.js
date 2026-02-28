@@ -1,5 +1,6 @@
 const modelPricing = require('../config/model-pricing');
 const { getDb } = require('../db/database');
+const { getStartOfMonthJST } = require('../utils/date-utils');
 
 function getProviderForModel(modelId) {
   for (const [provider, models] of Object.entries(modelPricing)) {
@@ -86,8 +87,7 @@ async function logDetailedUsage(params) {
 
 async function getMonthlyCostSummary() {
   const sb = getDb();
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const startOfMonth = getStartOfMonthJST();
 
   let allRows = [];
   try {
@@ -262,8 +262,7 @@ async function checkBudgetStatus() {
   const summary = await getMonthlyCostSummary();
 
   // Also add old api_usage_log costs
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const startOfMonth = getStartOfMonthJST();
   const { data: oldRows } = await sb.from('api_usage_log')
     .select('cost_usd')
     .gte('created_at', startOfMonth);

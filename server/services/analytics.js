@@ -9,8 +9,8 @@ function calculateEngagementRate(metrics) {
 
 async function getDashboardSummary(accountId) {
   const sb = getDb();
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  const { getStartOfMonthJST } = require('../utils/date-utils');
+  const startOfMonth = getStartOfMonthJST();
 
   // Post count this month
   let postQuery = sb.from('my_posts')
