@@ -144,8 +144,8 @@ router.put('/', async (req, res) => {
 router.get('/usage', async (req, res) => {
   try {
     const sb = getDb();
-    const now = new Date();
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const { getStartOfMonthJST } = require('../utils/date-utils');
+    const startOfMonth = getStartOfMonthJST();
 
     // Fetch usage rows this month (capped for safety)
     const { data: usageRows, error: usageError } = await sb.from('api_usage_log')

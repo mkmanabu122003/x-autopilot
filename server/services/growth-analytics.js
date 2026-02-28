@@ -136,9 +136,10 @@ async function getFollowerGrowth(accountId, days = 90) {
 async function getGrowthDashboard(accountId) {
   const sb = getDb();
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
+  const { getStartOfMonthJST, getStartOfLastMonthJST, getEndOfLastMonthJST } = require('../utils/date-utils');
+  const startOfMonth = getStartOfMonthJST(now);
+  const startOfLastMonth = getStartOfLastMonthJST(now);
+  const endOfLastMonth = getEndOfLastMonthJST(now);
 
   // Own posts this month with metrics
   let ownPostsQuery = sb.from('my_posts')
