@@ -331,14 +331,15 @@ class ClaudeProvider extends AIProvider {
   // which can consume the entire max_tokens budget and leave 0 tokens for output.
   // Always return a thinking config for Opus models with an appropriate budget.
   //
-  // Content generation tasks (tweets/replies/quotes) use a minimal budget (256)
+  // Content generation tasks (tweets/replies/quotes) use the minimum budget (1024)
   // because output is short (~280 chars) and thinking slows API response time
   // significantly — often causing 90s+ timeouts on Vercel.
+  // Note: The Anthropic API requires budget_tokens >= 1024.
   getThinkingConfig(model, taskType) {
     if (!this.isOpusModel(model)) return undefined;
 
     const ANALYSIS_TASKS = ['competitor_analysis', 'performance_summary'];
-    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 256;
+    const budgetTokens = ANALYSIS_TASKS.includes(taskType) ? 2048 : 1024;
 
     return {
       type: 'enabled',
