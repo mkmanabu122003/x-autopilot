@@ -369,11 +369,11 @@ describe('ai-provider', () => {
       expect(config).toEqual({ type: 'enabled', budget_tokens: 2048 });
     });
 
-    test('Opus モデル + コンテンツ生成タスクには小さい thinking budget を返す', () => {
+    test('Opus モデル + コンテンツ生成タスクには最小限の thinking budget を返す', () => {
       const tasks = ['tweet_generation', 'reply_generation', 'quote_rt_generation', 'comment_generation'];
       for (const task of tasks) {
         const config = provider.getThinkingConfig('claude-opus-4-6', task);
-        expect(config).toEqual({ type: 'enabled', budget_tokens: 256 });
+        expect(config).toEqual({ type: 'enabled', budget_tokens: 1024 });
       }
     });
 
