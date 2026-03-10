@@ -1,0 +1,155 @@
+const TelegramBot = require('node-telegram-bot-api');
+const { logError, logInfo } = require('./app-logger');
+
+let bot = null;
+let callbackHandler = null;
+let messageHandler = null;
+
+/**
+ * Initialize the Telegram bot with polling mode.
+ * Only starts if TELEGRAM_BOT_TOKEN is configured.
+ * @param {object} handlers - { onCallback, onMessage }
+ * @returns {TelegramBot|null}
+ */
+function initTelegramBot(handlers = {}) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    console.log('Telegram: TELEGRAM_BOT_TOKEN not set, skipping bot initialization');
+    return null;
+  }
+
+  bot = new TelegramBot(token, { polling: true });
+  callbackHandler = handlers.onCallback || null;
+  messageHandler = handlers.onMessage || null;
+
+  bot.on('callback_query', async (query) => {
+    try {
+      if (!isAuthorizedChat(query.message.chat.id)) {
+        await bot.answerCallbackQuery(query.id, { text: '権限がありません' });
+        return;
+      }
+      if (callbackHandler) {
+        await callbackHandler(query);
+      }
+      await bot.answerCallbackQuery(query.id);
+    } catch (err) {
+      console.error('Telegram callback error:', err.message);
+      logError('telegram', 'コールバック処理エラー', { error: err.message });
+      try {
+        await bot.answerCallbackQuery(query.id, { text: 'エラーが発生しました' });
+      } catch (e) {
+        // ignore
+      }
+    }
+  });
+
+  bot.on('message', async (msg) => {
+    try {
+      if (!isAuthorizedChat(msg.chat.id)) return;
+      if (messageHandler) {
+        await messageHandler(msg);
+      }
+    } catch (err) {
+      console.error('Telegram message error:', err.message);
+      logError('telegram', 'メッセージ処理エラー', { error: err.message });
+    }
+  });
+
+  bot.on('polling_error', (err) => {
+    console.error('Telegram polling error:', err.message);
+  });
+
+  console.log('Telegram bot started (polling mode)');
+  logInfo('telegram', 'Telegram Bot を起動しました');
+  return bot;
+}
+
+/**
+ * Check if the chat ID is authorized.
+ */
+function isAuthorizedChat(chatId) {
+  const allowed = process.env.TELEGRAM_CHAT_ID;
+  if (!allowed) return true; // If not configured, allow all
+  return String(chatId) === String(allowed);
+}
+
+/**
+ * Send a tweet proposal to Telegram with inline keyboard buttons.
+ * @param {string} chatId
+ * @param {object} proposal - { postId, text, index, total, postType }
+ * @returns {object|null} sent message
+ */
+async function sendTweetProposal(chatId, proposal) {
+  if (!bot) return null;
+
+  const { postId, text, index, total, postType } = proposal;
+  const typeLabel = postType === 'reply' ? 'リプライ' : postType === 'quote' ? '引用RT' : 'ツイート';
+  const charCount = text.length;
+
+  const message = `📝 ${typeLabel}案 (${index}/${total})\n━━━━━━━━━━━━━━━━\n${text}\n━━━━━━━━━━━━━━━━\n📊 文字数: ${charCount}`;
+
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '✅ これで投稿', callback_data: `approve:${postId}` },
+      { text: '✏️ 編集依頼', callback_data: `edit:${postId}` }
+    ], [
+      { text: '🔄 再生成', callback_data: `regenerate:${postId}` },
+      { text: '❌ 却下', callback_data: `reject:${postId}` }
+    ]]
+  };
+
+  const sent = await bot.sendMessage(chatId, message, {
+    reply_markup: keyboard,
+    parse_mode: undefined // Plain text to avoid markdown escaping issues
+  });
+
+  return sent;
+}
+
+/**
+ * Send a simple notification message.
+ * @param {string} chatId
+ * @param {string} text
+ */
+async function sendNotification(chatId, text) {
+  if (!bot) return null;
+  return bot.sendMessage(chatId, text);
+}
+
+/**
+ * Update an existing message (e.g., after approve/reject).
+ * @param {string} chatId
+ * @param {number} messageId
+ * @param {string} text
+ */
+async function updateMessage(chatId, messageId, text) {
+  if (!bot) return null;
+  return bot.editMessageText(text, { chat_id: chatId, message_id: messageId });
+}
+
+/**
+ * Get the bot instance.
+ */
+function getBot() {
+  return bot;
+}
+
+/**
+ * Stop the bot (for graceful shutdown / testing).
+ */
+async function stopBot() {
+  if (bot) {
+    await bot.stopPolling();
+    bot = null;
+  }
+}
+
+module.exports = {
+  initTelegramBot,
+  sendTweetProposal,
+  sendNotification,
+  updateMessage,
+  getBot,
+  stopBot,
+  isAuthorizedChat
+};

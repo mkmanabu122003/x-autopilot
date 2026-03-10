@@ -4,6 +4,7 @@ const { postTweet } = require('./x-api');
 const { getQuoteSuggestions, getReplySuggestions, getCompetitorContext } = require('./analytics');
 const { logError, logInfo } = require('./app-logger');
 const { getPatternConstraintBlock, logPatternUsage } = require('./pattern-rotation');
+let triggerTweetProposal = null; // Lazy-loaded to avoid circular dependency
 const { buildPerformanceContextBlock } = require('./tweet-improver');
 
 /**
@@ -229,6 +230,24 @@ async function resolveProvider(postType, accountDefault, settingModel) {
 }
 
 async function executeAutoPost(setting, count, currentTime, { forcePreview = false } = {}) {
+  // Telegram mode: send proposals to Telegram for approval instead of auto-posting
+  if (setting.schedule_mode === 'telegram') {
+    if (!triggerTweetProposal) {
+      triggerTweetProposal = require('./telegram-workflow').triggerTweetProposal;
+    }
+    const providerName = await resolveProvider(setting.post_type, setting.x_accounts?.default_ai_provider || 'claude', setting.ai_model || '');
+    const themes = (setting.themes || '').split(',').map(t => t.trim()).filter(Boolean);
+    const theme = themes.length > 0 ? themes[Math.floor(Math.random() * themes.length)] : '自由テーマ';
+    const result = await triggerTweetProposal(setting.account_id, {
+      theme,
+      postType: setting.post_type,
+      aiProvider: providerName,
+      aiModel: setting.ai_model
+    });
+    await logAutoPostExecution(setting.account_id, setting.post_type, result.generated, 0, 0, 'success', null);
+    return { generated: result.generated, drafts: result.generated, scheduled: 0, posted: 0 };
+  }
+
   const accountDefault = setting.x_accounts?.default_ai_provider || 'claude';
   const settingModel = setting.ai_model || '';
   const providerName = await resolveProvider(setting.post_type, accountDefault, settingModel);
