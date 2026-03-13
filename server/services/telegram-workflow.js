@@ -19,7 +19,7 @@ async function triggerTweetProposal(accountId, options = {}) {
     aiModel
   } = options;
 
-  const chatId = getTelegramChatId();
+  const chatId = await getTelegramChatId();
   if (!chatId) throw new Error('Telegram Chat ID が設定されていません。Supabase の settings テーブルに telegram_chat_id を登録してください。');
 
   const provider = getAIProvider(providerName);
@@ -116,7 +116,7 @@ async function approveTweet(postId) {
     xResult = await postTweet(post.text, postOptions);
   } catch (err) {
     // Post failed: notify and keep as draft
-    const chatId = post.telegram_chat_id || getTelegramChatId();
+    const chatId = post.telegram_chat_id || await getTelegramChatId();
     if (chatId) {
       await sendNotification(chatId, `❌ 投稿に失敗しました\n\nエラー: ${err.message}`);
     }
@@ -149,7 +149,7 @@ async function approveTweet(postId) {
       ));
 
       // Update Telegram messages for auto-rejected siblings
-      const siblingChatId = post.telegram_chat_id || getTelegramChatId();
+      const siblingChatId = post.telegram_chat_id || await getTelegramChatId();
       if (siblingChatId) {
         await Promise.all(siblings.filter(s => s.telegram_message_id).map(s =>
           updateMessage(siblingChatId, Number(s.telegram_message_id),
@@ -162,7 +162,7 @@ async function approveTweet(postId) {
   }
 
   // Notify success via Telegram
-  const chatId = post.telegram_chat_id || getTelegramChatId();
+  const chatId = post.telegram_chat_id || await getTelegramChatId();
   if (chatId) {
     if (post.telegram_message_id) {
       await updateMessage(chatId, Number(post.telegram_message_id),
@@ -196,7 +196,7 @@ async function rejectTweet(postId) {
     .update({ status: 'rejected' })
     .eq('id', postId);
 
-  const chatId = post.telegram_chat_id || getTelegramChatId();
+  const chatId = post.telegram_chat_id || await getTelegramChatId();
   if (chatId && post.telegram_message_id) {
     await updateMessage(chatId, Number(post.telegram_message_id),
       `❌ 却下済み\n━━━━━━━━━━━━━━━━\n${post.text}`);
@@ -226,7 +226,7 @@ async function regenerateTweet(postId) {
     .eq('id', postId);
 
   // Update old Telegram message
-  const chatId = post.telegram_chat_id || getTelegramChatId();
+  const chatId = post.telegram_chat_id || await getTelegramChatId();
   if (chatId && post.telegram_message_id) {
     await updateMessage(chatId, Number(post.telegram_message_id),
       `🔄 再生成中...\n━━━━━━━━━━━━━━━━\n${post.text}`);
