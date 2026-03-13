@@ -52,6 +52,9 @@ export default function Settings() {
   const [telegramStatus, setTelegramStatus] = useState(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [telegramTestResult, setTelegramTestResult] = useState(null);
+  const [telegramForm, setTelegramForm] = useState({ bot_token: '', chat_id: '' });
+  const [telegramSaving, setTelegramSaving] = useState(false);
+  const [telegramSaveResult, setTelegramSaveResult] = useState(null);
 
   // Cost optimization state
   const [costSettings, setCostSettings] = useState(null);
@@ -157,6 +160,25 @@ export default function Settings() {
       setTelegramTestResult({ success: true, message: 'テスト通知を送信しました' });
     } catch (err) {
       setTelegramTestResult({ success: false, message: err.message || 'テスト通知の送信に失敗しました' });
+    }
+  };
+
+  const handleTelegramSave = async () => {
+    if (!telegramForm.bot_token && !telegramForm.chat_id) return;
+    setTelegramSaving(true);
+    setTelegramSaveResult(null);
+    try {
+      const body = {};
+      if (telegramForm.bot_token) body.telegram_bot_token = telegramForm.bot_token;
+      if (telegramForm.chat_id) body.telegram_chat_id = telegramForm.chat_id;
+      const result = await put('/telegram/settings', body);
+      setTelegramSaveResult({ success: true, message: '保存しました' + (result.bot ? ` (@${result.bot.username})` : '') });
+      setTelegramForm({ bot_token: '', chat_id: '' });
+      loadTelegramStatus();
+    } catch (err) {
+      setTelegramSaveResult({ success: false, message: err.message || '保存に失敗しました' });
+    } finally {
+      setTelegramSaving(false);
     }
   };
 
@@ -533,9 +555,7 @@ export default function Settings() {
                 {!telegramStatus.connected && (
                   <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
                     <p className="text-sm text-amber-800">
-                      Telegram Botが接続されていません。Supabaseのsettingsテーブルに
-                      <code className="px-1 py-0.5 bg-amber-100 rounded text-xs font-mono">telegram_bot_token</code> と
-                      <code className="px-1 py-0.5 bg-amber-100 rounded text-xs font-mono">telegram_chat_id</code> を設定してください。
+                      Telegram Botが接続されていません。下のフォームからBot TokenとChat IDを設定してください。
                     </p>
                   </div>
                 )}
@@ -545,6 +565,47 @@ export default function Settings() {
                 <p className="text-sm text-gray-400">接続状態を取得できませんでした</p>
               )
             )}
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <h3 className="font-semibold text-gray-900">Telegram Bot 設定</h3>
+            <p className="text-sm text-gray-500">BotFather から取得した Bot Token と、通知先の Chat ID を入力してください。</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Bot Token</label>
+                <input
+                  type="password"
+                  value={telegramForm.bot_token}
+                  onChange={(e) => setTelegramForm(prev => ({ ...prev, bot_token: e.target.value }))}
+                  placeholder="123456:ABC-DEF..."
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Chat ID</label>
+                <input
+                  type="text"
+                  value={telegramForm.chat_id}
+                  onChange={(e) => setTelegramForm(prev => ({ ...prev, chat_id: e.target.value }))}
+                  placeholder="-1001234567890"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleTelegramSave}
+                  disabled={telegramSaving || (!telegramForm.bot_token && !telegramForm.chat_id)}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {telegramSaving ? '保存中...' : '保存して接続'}
+                </button>
+                {telegramSaveResult && (
+                  <span className={`text-sm ${telegramSaveResult.success ? 'text-green-600' : 'text-red-500'}`}>
+                    {telegramSaveResult.message}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           {telegramStatus?.connected && (

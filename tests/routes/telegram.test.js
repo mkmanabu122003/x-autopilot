@@ -253,5 +253,18 @@ describe('telegram routes', () => {
       const res = await request('PUT', '/api/telegram/settings', {});
       expect(res.status).toBe(400);
     });
+
+    test('should return 500 with helpful message when ENCRYPTION_KEY is not set', async () => {
+      mockEncrypt.mockImplementation(() => {
+        throw new Error('ENCRYPTION_KEY environment variable is not set');
+      });
+
+      const res = await request('PUT', '/api/telegram/settings', {
+        telegram_bot_token: 'some-token'
+      });
+
+      expect(res.status).toBe(500);
+      expect(res.body.error).toContain('ENCRYPTION_KEY');
+    });
   });
 });
