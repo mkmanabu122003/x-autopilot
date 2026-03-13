@@ -165,6 +165,8 @@ async function checkAndRunAutoPosts() {
   }
   if (!allSettings || allSettings.length === 0) return;
 
+  const pendingUpdates = [];
+
   for (const setting of allSettings) {
     try {
       const times = (setting.schedule_times || '').split(',').map(t => t.trim());
@@ -177,32 +179,32 @@ async function checkAndRunAutoPosts() {
       const ranTimes = (setting.last_run_times || '').split(',').map(t => t.trim()).filter(Boolean);
       if (setting.last_run_date === today && ranTimes.includes(matchedTime)) continue;
 
-      console.log(`AutoPoster: running ${setting.post_type} for account ${setting.account_id} at ${currentTime} (scheduled: ${matchedTime})`);
+      logInfo('auto_post', `自動投稿実行: ${setting.post_type} account=${setting.account_id} time=${currentTime} (scheduled: ${matchedTime})`);
 
       // Calculate how many posts for this time slot
       const postsForSlot = Math.ceil(setting.posts_per_day / times.length);
 
       await executeAutoPost(setting, postsForSlot, matchedTime);
 
-      // Update last_run tracking – record the *scheduled* time, not the actual
-      // current time, so that the duplicate guard works correctly.
+      // Collect last_run tracking updates for batch execution
       const updatedTimes = setting.last_run_date === today
         ? [...ranTimes, matchedTime].join(',')
         : matchedTime;
 
-      await sb.from('auto_post_settings')
-        .update({
-          last_run_date: today,
-          last_run_times: updatedTimes
-        })
-        .eq('id', setting.id);
+      pendingUpdates.push({ id: setting.id, last_run_date: today, last_run_times: updatedTimes });
 
     } catch (err) {
-      console.error(`AutoPoster: error processing setting ${setting.id}:`, err.message);
       logError('auto_post', `自動投稿処理エラー (設定ID: ${setting.id})`, { settingId: setting.id, postType: setting.post_type, error: err.message, stack: err.stack });
       await logAutoPostExecution(setting.account_id, setting.post_type, 0, 0, 0, 'failed', err.message);
     }
   }
+
+  // Batch update last_run tracking
+  await Promise.all(pendingUpdates.map(u =>
+    sb.from('auto_post_settings')
+      .update({ last_run_date: u.last_run_date, last_run_times: u.last_run_times })
+      .eq('id', u.id)
+  ));
 }
 
 async function resolveProvider(postType, accountDefault, settingModel) {
@@ -297,33 +299,18 @@ async function executeNewTweets(setting, provider, count, currentTime, forcePrev
   const errors = [];
 
   // Fetch shared data once before generation
-  let patternConstraintBlock = '';
-  try {
-    patternConstraintBlock = await getPatternConstraintBlock(accountId);
-  } catch (e) {
-    // Non-critical: continue without constraints
-  }
-
-  let competitorContext = '';
-  try {
-    competitorContext = await getCompetitorContext(accountId);
-  } catch (e) {
-    // Non-critical
-  }
+  // Fetch all context data in parallel (all are independent and non-critical)
+  const [patternConstraintBlock, competitorContext, themeCategories, recentCategoryCodes, performanceBlock] = await Promise.all([
+    getPatternConstraintBlock(accountId).catch(() => ''),
+    getCompetitorContext(accountId).catch(() => ''),
+    getThemeCategories(accountId).catch(() => []),
+    getRecentThemeCategories(accountId, 3).catch(() => []),
+    buildPerformanceContextBlock(accountId).catch(() => '')
+  ]);
 
   // Theme category rotation: pick a category not used in recent 3 posts
-  const themeCategories = await getThemeCategories(accountId);
-  const recentCategoryCodes = await getRecentThemeCategories(accountId, 3);
   const selectedCategory = pickAvailableCategory(themeCategories, recentCategoryCodes);
   const categoryBlock = buildCategoryConstraintBlock(themeCategories, recentCategoryCodes, selectedCategory);
-
-  // Performance feedback: inject insights from past post analysis
-  let performanceBlock = '';
-  try {
-    performanceBlock = await buildPerformanceContextBlock(accountId);
-  } catch (e) {
-    // Non-critical: continue without performance feedback
-  }
 
   // Each AI call returns 3 candidates, so we only need ceil(count/3) calls.
   // This drastically reduces API calls and avoids timeouts.

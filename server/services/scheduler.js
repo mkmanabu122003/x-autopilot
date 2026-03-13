@@ -72,7 +72,7 @@ function startScheduler() {
 async function refreshAllAccountMetrics() {
   try {
     const sb = getDb();
-    const { data: accounts } = await sb.from('x_accounts').select('id');
+    const { data: accounts } = await sb.from('x_accounts').select('id').limit(100);
     if (!accounts) return;
 
     for (const account of accounts) {
@@ -86,7 +86,7 @@ async function refreshAllAccountMetrics() {
 async function recordAllFollowerSnapshots() {
   try {
     const sb = getDb();
-    const { data: accounts } = await sb.from('x_accounts').select('id');
+    const { data: accounts } = await sb.from('x_accounts').select('id').limit(100);
     if (!accounts) return;
 
     for (const account of accounts) {
@@ -186,20 +186,23 @@ async function fetchCompetitorTweetsIfDue() {
 
 async function fetchAllCompetitorTweets() {
   const sb = getDb();
-  const { data: competitors } = await sb.from('competitors').select('*');
+  const { data: competitors } = await sb.from('competitors').select('*').limit(200);
 
   if (!competitors) return;
+
+  // Batch-fetch which competitors already have recent tweets (within 24h)
+  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const competitorIds = competitors.map(c => c.id);
+  const { data: recentRows } = await sb.from('competitor_tweets')
+    .select('competitor_id')
+    .in('competitor_id', competitorIds)
+    .gte('fetched_at', oneDayAgo);
+  const recentCompetitorIds = new Set((recentRows || []).map(r => r.competitor_id));
 
   for (const competitor of competitors) {
     try {
       // Skip if we already have recent tweets (fetched within 24h) to save API costs
-      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: recentTweets } = await sb.from('competitor_tweets')
-        .select('id')
-        .eq('competitor_id', competitor.id)
-        .gte('fetched_at', oneDayAgo)
-        .limit(1);
-      if (recentTweets && recentTweets.length > 0) {
+      if (recentCompetitorIds.has(competitor.id)) {
         console.log(`Skipping @${competitor.handle} - tweets fetched recently`);
         continue;
       }
@@ -260,7 +263,7 @@ async function fetchAllCompetitorTweets() {
 async function runWeeklyImprovementAnalysis() {
   try {
     const sb = getDb();
-    const { data: accounts } = await sb.from('x_accounts').select('id');
+    const { data: accounts } = await sb.from('x_accounts').select('id').limit(100);
     if (!accounts) return;
 
     for (const account of accounts) {

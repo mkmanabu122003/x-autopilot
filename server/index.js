@@ -28,7 +28,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(basicAuth);
-app.use(cors());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || (process.env.NODE_ENV === 'production' ? false : true)
+}));
 app.use(express.json());
 
 // API routes
