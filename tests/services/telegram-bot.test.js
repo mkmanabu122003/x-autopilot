@@ -150,7 +150,7 @@ describe('telegram-bot', () => {
       );
     });
 
-    test('should show fact check warning when factCheck has issues', async () => {
+    test('should show fact check warning and confirm_approve button when factCheck has issues', async () => {
       await telegramBot.initTelegramBot();
       mockSendMessage.mockResolvedValue({ message_id: 103 });
 
@@ -166,11 +166,19 @@ describe('telegram-bot', () => {
       expect(mockSendMessage).toHaveBeenCalledWith(
         '12345',
         expect.stringContaining('要確認: 「浅草の金龍寺」は架空の寺名'),
-        expect.any(Object)
+        expect.objectContaining({
+          reply_markup: expect.objectContaining({
+            inline_keyboard: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({ callback_data: 'confirm_approve:post-4' })
+              ])
+            ])
+          })
+        })
       );
     });
 
-    test('should not show fact check warning when factCheck is ok', async () => {
+    test('should not show fact check warning when factCheck is ok and use normal approve', async () => {
       await telegramBot.initTelegramBot();
       mockSendMessage.mockResolvedValue({ message_id: 104 });
 
@@ -185,6 +193,21 @@ describe('telegram-bot', () => {
 
       const sentMessage = mockSendMessage.mock.calls[0][1];
       expect(sentMessage).not.toContain('要確認');
+
+      // Should use normal approve, not confirm_approve
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '12345',
+        expect.any(String),
+        expect.objectContaining({
+          reply_markup: expect.objectContaining({
+            inline_keyboard: expect.arrayContaining([
+              expect.arrayContaining([
+                expect.objectContaining({ callback_data: 'approve:post-5' })
+              ])
+            ])
+          })
+        })
+      );
     });
 
     test('should show correct type label for quote', async () => {

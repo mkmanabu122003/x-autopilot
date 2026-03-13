@@ -1,7 +1,8 @@
+const crypto = require('crypto');
 const { getDb } = require('../db/database');
 const { getAIProvider } = require('./ai-provider');
 const { postTweet } = require('./x-api');
-const { sendTweetProposal, sendNotification, updateMessage, initTelegramBot, getTelegramChatId } = require('./telegram-bot');
+const { sendTweetProposal, sendNotification, updateMessage, initTelegramBot, getTelegramChatId, getBot } = require('./telegram-bot');
 const { logError, logInfo } = require('./app-logger');
 
 /**
@@ -38,6 +39,7 @@ async function triggerTweetProposal(accountId, options = {}) {
   const sb = getDb();
 
   // Filter valid candidates and batch-insert all drafts at once
+  const batchId = crypto.randomUUID();
   const validCandidates = result.candidates.filter(c => c.text && c.text.trim());
   const insertRows = validCandidates.map(candidate => ({
     account_id: accountId,
@@ -46,7 +48,9 @@ async function triggerTweetProposal(accountId, options = {}) {
     status: 'draft',
     ai_provider: result.provider,
     ai_model: result.model,
-    telegram_chat_id: chatId
+    telegram_chat_id: chatId,
+    generation_theme: theme,
+    generation_batch_id: batchId
   }));
 
   const { data: posts, error } = await sb.from('my_posts')
@@ -131,6 +135,32 @@ async function approveTweet(postId) {
     })
     .eq('id', postId);
 
+  // Auto-reject other drafts in the same batch to prevent double-posting
+  if (post.generation_batch_id) {
+    const { data: siblings } = await sb.from('my_posts')
+      .select('id, telegram_chat_id, telegram_message_id, text')
+      .eq('generation_batch_id', post.generation_batch_id)
+      .eq('status', 'draft')
+      .neq('id', postId);
+
+    if (siblings && siblings.length > 0) {
+      await Promise.all(siblings.map(s =>
+        sb.from('my_posts').update({ status: 'rejected' }).eq('id', s.id)
+      ));
+
+      // Update Telegram messages for auto-rejected siblings
+      const siblingChatId = post.telegram_chat_id || getTelegramChatId();
+      if (siblingChatId) {
+        await Promise.all(siblings.filter(s => s.telegram_message_id).map(s =>
+          updateMessage(siblingChatId, Number(s.telegram_message_id),
+            `🚫 自動却下（別の案が投稿されました）\n━━━━━━━━━━━━━━━━\n${s.text}`)
+        ));
+      }
+
+      logInfo('telegram', `同バッチの${siblings.length}件を自動却下しました`, { batchId: post.generation_batch_id });
+    }
+  }
+
   // Notify success via Telegram
   const chatId = post.telegram_chat_id || getTelegramChatId();
   if (chatId) {
@@ -202,15 +232,56 @@ async function regenerateTweet(postId) {
       `🔄 再生成中...\n━━━━━━━━━━━━━━━━\n${post.text}`);
   }
 
-  // Generate new proposals
+  // Generate new proposals, preserving the original theme
   const providerName = post.ai_provider || 'claude';
   const result = await triggerTweetProposal(post.account_id, {
+    theme: post.generation_theme || '自由テーマ',
     postType: post.post_type,
     aiProvider: providerName,
     aiModel: post.ai_model
   });
 
   return result;
+}
+
+/**
+ * Show a confirmation step before approving a tweet with fact-check warnings.
+ * Replaces the original message buttons with "本当に投稿" / "やっぱりやめる".
+ * @param {string} postId
+ * @param {string} chatId
+ */
+async function confirmApprove(postId, chatId) {
+  const sb = getDb();
+
+  const { data: post, error } = await sb.from('my_posts')
+    .select('*')
+    .eq('id', postId)
+    .eq('status', 'draft')
+    .single();
+
+  if (error || !post) throw new Error('下書きが見つかりません');
+
+  const confirmMessage = `⚠️ ファクトチェック警告あり\n━━━━━━━━━━━━━━━━\n${post.text}\n━━━━━━━━━━━━━━━━\n本当にこのまま投稿しますか？`;
+
+  const keyboard = {
+    inline_keyboard: [[
+      { text: '✅ 本当に投稿', callback_data: `force_approve:${postId}` },
+      { text: '❌ やっぱりやめる', callback_data: `reject:${postId}` }
+    ]]
+  };
+
+  if (post.telegram_message_id) {
+    const bot = getBot();
+    if (bot) {
+      await bot.editMessageText(confirmMessage, {
+        chat_id: chatId,
+        message_id: Number(post.telegram_message_id),
+        reply_markup: keyboard
+      });
+    }
+  } else {
+    await sendNotification(chatId, confirmMessage);
+  }
 }
 
 /**
@@ -386,6 +457,12 @@ async function handleCallback(query) {
     case 'approve':
       await approveTweet(postId);
       break;
+    case 'confirm_approve':
+      await confirmApprove(postId, chatId);
+      break;
+    case 'force_approve':
+      await approveTweet(postId);
+      break;
     case 'reject':
       await rejectTweet(postId);
       break;
@@ -412,6 +489,7 @@ async function handleMessage(msg) {
 module.exports = {
   triggerTweetProposal,
   approveTweet,
+  confirmApprove,
   rejectTweet,
   regenerateTweet,
   startEditSession,
