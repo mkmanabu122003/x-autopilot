@@ -53,8 +53,9 @@ async function triggerTweetProposal(accountId, options = {}) {
     .insert(insertRows).select('id, text');
 
   if (error || !posts) {
-    logError('telegram', `下書き一括保存エラー`, { error: error?.message });
-    return { generated: 0, postIds: [] };
+    const errMsg = error?.message || '下書きの保存に失敗しました';
+    logError('telegram', `下書き一括保存エラー`, { error: errMsg });
+    throw new Error(`下書き保存エラー: ${errMsg}`);
   }
 
   // Send proposals to Telegram and collect message ID updates

@@ -143,6 +143,29 @@ describe('telegram-workflow', () => {
       await expect(triggerTweetProposal('account-1')).rejects.toThrow('Telegram Chat ID が設定されていません');
     });
 
+    test('should throw when DB insert fails', async () => {
+      mockGenerateTweets.mockResolvedValue({
+        provider: 'claude',
+        model: 'test',
+        candidates: [{ text: 'ツイート案' }]
+      });
+
+      const insertChain = {
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'column "telegram_chat_id" does not exist' }
+        })
+      };
+
+      setupFromMock({
+        my_posts: () => insertChain
+      });
+
+      await expect(triggerTweetProposal('account-1', { theme: 'テスト' }))
+        .rejects.toThrow('下書き保存エラー');
+    });
+
     test('should throw when no candidates are generated', async () => {
       mockGenerateTweets.mockResolvedValue({
         provider: 'claude',
