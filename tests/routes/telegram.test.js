@@ -27,6 +27,12 @@ jest.mock('../../server/db/database', () => ({
   }))
 }));
 
+// Mock crypto
+const mockEncrypt = jest.fn((v) => `encrypted:${v}`);
+jest.mock('../../server/utils/crypto', () => ({
+  encrypt: mockEncrypt
+}));
+
 const express = require('express');
 const telegramRouter = require('../../server/routes/telegram');
 
@@ -217,9 +223,10 @@ describe('telegram routes', () => {
       expect(res.body.botReloaded).toBe(true);
       expect(res.body.bot.username).toBe('test_bot');
       expect(mockFrom).toHaveBeenCalledWith('settings');
+      expect(mockEncrypt).toHaveBeenCalledWith('new-token');
       expect(mockUpsert).toHaveBeenCalledWith(
         expect.arrayContaining([
-          { key: 'telegram_bot_token', value: 'new-token' },
+          { key: 'telegram_bot_token', value: 'encrypted:new-token' },
           { key: 'telegram_chat_id', value: '67890' }
         ]),
         { onConflict: 'key' }

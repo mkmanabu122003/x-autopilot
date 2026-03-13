@@ -101,9 +101,14 @@ router.get('/', async (req, res) => {
     const { data, error } = await sb.from('settings').select('key, value').limit(100);
     if (error) throw error;
 
+    const SENSITIVE_KEYS = ['telegram_bot_token'];
     const settings = {};
     for (const row of (data || [])) {
-      settings[row.key] = row.value;
+      if (SENSITIVE_KEYS.includes(row.key)) {
+        settings[row.key] = '********';
+      } else {
+        settings[row.key] = row.value;
+      }
     }
     res.json(settings);
   } catch (error) {

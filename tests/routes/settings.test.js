@@ -137,6 +137,27 @@ describe('settings routes', () => {
       expect(res.body.monthly_budget_usd).toBe('33');
     });
 
+    test('telegram_bot_token はマスクされる', async () => {
+      mockLimit.mockReturnValueOnce({
+        ...mockChain,
+        then: (resolve) => resolve({
+          data: [
+            { key: 'system_prompt', value: 'test prompt' },
+            { key: 'telegram_bot_token', value: 'encrypted-secret-token' },
+            { key: 'telegram_chat_id', value: '12345' }
+          ],
+          error: null
+        })
+      });
+
+      const app = createApp();
+      const res = await request(app).get('/api/settings');
+      expect(res.status).toBe(200);
+      expect(res.body.telegram_bot_token).toBe('********');
+      expect(res.body.telegram_chat_id).toBe('12345');
+      expect(res.body.system_prompt).toBe('test prompt');
+    });
+
     test('DB エラー時は 500 を返す', async () => {
       mockLimit.mockReturnValueOnce({
         ...mockChain,

@@ -3,6 +3,7 @@ const router = express.Router();
 const { triggerTweetProposal } = require('../services/telegram-workflow');
 const { getBot, sendNotification, getTelegramChatId, reloadBot } = require('../services/telegram-bot');
 const { getDb } = require('../db/database');
+const { encrypt } = require('../utils/crypto');
 
 // POST /api/telegram/trigger - Manually trigger tweet proposal generation & send to Telegram
 router.post('/trigger', async (req, res) => {
@@ -88,7 +89,7 @@ router.put('/settings', async (req, res) => {
     const sb = getDb();
     const rows = [];
     if (telegram_bot_token !== undefined) {
-      rows.push({ key: 'telegram_bot_token', value: telegram_bot_token });
+      rows.push({ key: 'telegram_bot_token', value: encrypt(telegram_bot_token) });
     }
     if (telegram_chat_id !== undefined) {
       rows.push({ key: 'telegram_chat_id', value: String(telegram_chat_id) });

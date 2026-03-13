@@ -26,8 +26,19 @@ async function loadTelegramCredentials() {
       }
     }
 
-    const token = settings.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || null;
+    let token = settings.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || null;
     const chatId = settings.telegram_chat_id || process.env.TELEGRAM_CHAT_ID || null;
+
+    // Decrypt token if it was encrypted (stored from PUT /api/telegram/settings)
+    if (token && settings.telegram_bot_token) {
+      try {
+        const { decrypt } = require('../utils/crypto');
+        token = decrypt(token);
+      } catch (e) {
+        // Not encrypted or ENCRYPTION_KEY not set — use as-is (env var fallback)
+      }
+    }
+
     return { token, chatId };
   } catch (err) {
     // DB not available yet, fall back to env vars
