@@ -92,16 +92,18 @@ describe('telegram-workflow', () => {
         ]
       });
 
+      // Batch insert returns array of posts
       const insertChain = {
         insert: jest.fn().mockReturnThis(),
-        select: jest.fn().mockReturnThis(),
-        single: jest.fn()
+        select: jest.fn().mockResolvedValue({
+          data: [
+            { id: 'post-1', text: 'ツイート案1' },
+            { id: 'post-2', text: 'ツイート案2' },
+            { id: 'post-3', text: 'ツイート案3' }
+          ],
+          error: null
+        })
       };
-      let insertCallCount = 0;
-      insertChain.single.mockImplementation(() => {
-        insertCallCount++;
-        return Promise.resolve({ data: { id: `post-${insertCallCount}` }, error: null });
-      });
 
       const updateChain = {
         update: jest.fn().mockReturnThis(),
@@ -316,8 +318,6 @@ describe('telegram-workflow', () => {
         ai_model: 'claude-sonnet-4-20250514'
       };
 
-      const callCounts = { my_posts_insert: 0 };
-
       setupFromMock({
         telegram_sessions: () => ({
           select: jest.fn().mockReturnThis(),
@@ -333,14 +333,12 @@ describe('telegram-workflow', () => {
           single: jest.fn().mockResolvedValue({ data: mockPost, error: null }),
           update: jest.fn().mockReturnThis(),
           insert: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn().mockImplementation(() => {
-                callCounts.my_posts_insert++;
-                return Promise.resolve({
-                  data: { id: `new-post-${callCounts.my_posts_insert}` },
-                  error: null
-                });
-              })
+            select: jest.fn().mockResolvedValue({
+              data: [
+                { id: 'new-post-1', text: '修正案1' },
+                { id: 'new-post-2', text: '修正案2' }
+              ],
+              error: null
             })
           })
         })

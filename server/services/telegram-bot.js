@@ -49,7 +49,7 @@ async function initTelegramBot(handlers = {}) {
   telegramChatId = chatId;
 
   if (!token) {
-    console.log('Telegram: bot token not configured, skipping bot initialization');
+    logInfo('telegram', 'Bot token not configured, skipping initialization');
     return null;
   }
 
@@ -68,7 +68,6 @@ async function initTelegramBot(handlers = {}) {
       }
       await bot.answerCallbackQuery(query.id);
     } catch (err) {
-      console.error('Telegram callback error:', err.message);
       logError('telegram', 'コールバック処理エラー', { error: err.message });
       try {
         await bot.answerCallbackQuery(query.id, { text: 'エラーが発生しました' });
@@ -85,16 +84,14 @@ async function initTelegramBot(handlers = {}) {
         await messageHandler(msg);
       }
     } catch (err) {
-      console.error('Telegram message error:', err.message);
       logError('telegram', 'メッセージ処理エラー', { error: err.message });
     }
   });
 
   bot.on('polling_error', (err) => {
-    console.error('Telegram polling error:', err.message);
+    logError('telegram', 'ポーリングエラー', { error: err.message });
   });
 
-  console.log('Telegram bot started (polling mode)');
   logInfo('telegram', 'Telegram Bot を起動しました');
   return bot;
 }

@@ -10,6 +10,7 @@ const ACCOUNT_COLORS = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6', '
 
 const TABS = [
   { id: 'accounts', label: 'Xアカウント' },
+  { id: 'telegram', label: 'Telegram' },
   { id: 'cost', label: 'コスト最適化' },
   { id: 'ai', label: 'AI共通設定' },
   { id: 'competitor', label: '競合分析' },
@@ -46,6 +47,11 @@ export default function Settings() {
   const [logLoading, setLogLoading] = useState(false);
   const [expandedLogId, setExpandedLogId] = useState(null);
   const LOG_LIMIT = 50;
+
+  // Telegram status state
+  const [telegramStatus, setTelegramStatus] = useState(null);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramTestResult, setTelegramTestResult] = useState(null);
 
   // Cost optimization state
   const [costSettings, setCostSettings] = useState(null);
@@ -128,6 +134,31 @@ export default function Settings() {
   useEffect(() => {
     loadCostSettings();
   }, [loadCostSettings]);
+
+  // Load Telegram status
+  const loadTelegramStatus = useCallback(() => {
+    setTelegramLoading(true);
+    get('/telegram/status')
+      .then(setTelegramStatus)
+      .catch(() => setTelegramStatus(null))
+      .finally(() => setTelegramLoading(false));
+  }, [get]);
+
+  useEffect(() => {
+    if (activeTab === 'telegram') {
+      loadTelegramStatus();
+    }
+  }, [activeTab, loadTelegramStatus]);
+
+  const handleTelegramTest = async () => {
+    setTelegramTestResult(null);
+    try {
+      const result = await post('/telegram/test');
+      setTelegramTestResult({ success: true, message: 'テスト通知を送信しました' });
+    } catch (err) {
+      setTelegramTestResult({ success: false, message: err.message || 'テスト通知の送信に失敗しました' });
+    }
+  };
 
   // Load prompt for selected task
   useEffect(() => {
@@ -463,6 +494,85 @@ export default function Settings() {
 
             {editingAccount && renderAccountForm(true)}
             {showAddAccount && renderAccountForm(false)}
+          </div>
+        </>
+      )}
+
+      {/* ===== Telegram Tab ===== */}
+      {activeTab === 'telegram' && (
+        <>
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">Telegram Bot 接続状態</h3>
+              <button onClick={loadTelegramStatus} disabled={telegramLoading}
+                className="px-3 py-1 text-sm text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors disabled:opacity-50">
+                {telegramLoading ? '確認中...' : '更新'}
+              </button>
+            </div>
+
+            {telegramStatus ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className={`w-3 h-3 rounded-full ${telegramStatus.connected ? 'bg-green-500' : 'bg-red-400'}`} />
+                  <span className={`text-sm font-medium ${telegramStatus.connected ? 'text-green-700' : 'text-red-600'}`}>
+                    {telegramStatus.connected ? '接続済み' : '未接続'}
+                  </span>
+                </div>
+
+                {telegramStatus.connected && telegramStatus.bot && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-1">
+                    <p className="text-sm text-gray-700">
+                      Bot名: <span className="font-medium">{telegramStatus.bot.first_name}</span>
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      ユーザー名: <span className="font-mono text-sm">@{telegramStatus.bot.username}</span>
+                    </p>
+                  </div>
+                )}
+
+                {!telegramStatus.connected && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <p className="text-sm text-amber-800">
+                      Telegram Botが接続されていません。Supabaseのsettingsテーブルに
+                      <code className="px-1 py-0.5 bg-amber-100 rounded text-xs font-mono">telegram_bot_token</code> と
+                      <code className="px-1 py-0.5 bg-amber-100 rounded text-xs font-mono">telegram_chat_id</code> を設定してください。
+                    </p>
+                  </div>
+                )}
+              </div>
+            ) : (
+              !telegramLoading && (
+                <p className="text-sm text-gray-400">接続状態を取得できませんでした</p>
+              )
+            )}
+          </div>
+
+          {telegramStatus?.connected && (
+            <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-4">
+              <h3 className="font-semibold text-gray-900">テスト通知</h3>
+              <p className="text-sm text-gray-500">Telegram Botからテスト通知を送信して、接続を確認できます。</p>
+              <div className="flex items-center gap-3">
+                <button onClick={handleTelegramTest}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                  テスト通知を送信
+                </button>
+                {telegramTestResult && (
+                  <span className={`text-sm ${telegramTestResult.success ? 'text-green-600' : 'text-red-500'}`}>
+                    {telegramTestResult.message}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+            <h3 className="font-semibold text-gray-900">使い方</h3>
+            <div className="text-sm text-gray-600 space-y-2">
+              <p>1. 自動投稿設定で投稿モードを「Telegram承認」に設定</p>
+              <p>2. 設定した時刻にAIがツイート案を生成し、Telegramに送信</p>
+              <p>3. Telegramのボタンで承認・却下・編集・再生成を選択</p>
+              <p>4. 承認するとXに自動投稿されます</p>
+            </div>
           </div>
         </>
       )}

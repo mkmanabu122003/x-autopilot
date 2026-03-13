@@ -36,46 +36,49 @@ async function triggerTweetProposal(accountId, options = {}) {
   }
 
   const sb = getDb();
-  const postIds = [];
 
-  for (let i = 0; i < result.candidates.length; i++) {
-    const candidate = result.candidates[i];
-    if (!candidate.text || !candidate.text.trim()) continue;
+  // Filter valid candidates and batch-insert all drafts at once
+  const validCandidates = result.candidates.filter(c => c.text && c.text.trim());
+  const insertRows = validCandidates.map(candidate => ({
+    account_id: accountId,
+    text: candidate.text,
+    post_type: postType,
+    status: 'draft',
+    ai_provider: result.provider,
+    ai_model: result.model,
+    telegram_chat_id: chatId
+  }));
 
-    // Save as draft
-    const { data: post, error } = await sb.from('my_posts').insert({
-      account_id: accountId,
-      text: candidate.text,
-      post_type: postType,
-      status: 'draft',
-      ai_provider: result.provider,
-      ai_model: result.model,
-      telegram_chat_id: chatId
-    }).select('id').single();
+  const { data: posts, error } = await sb.from('my_posts')
+    .insert(insertRows).select('id, text');
 
-    if (error) {
-      logError('telegram', `下書き保存エラー`, { error: error.message });
-      continue;
-    }
+  if (error || !posts) {
+    logError('telegram', `下書き一括保存エラー`, { error: error?.message });
+    return { generated: 0, postIds: [] };
+  }
 
-    // Send to Telegram
+  // Send proposals to Telegram and collect message ID updates
+  const messageUpdates = [];
+  for (let i = 0; i < posts.length; i++) {
     const sent = await sendTweetProposal(chatId, {
-      postId: post.id,
-      text: candidate.text,
+      postId: posts[i].id,
+      text: posts[i].text,
       index: i + 1,
-      total: result.candidates.length,
+      total: posts.length,
       postType
     });
 
     if (sent) {
-      await sb.from('my_posts')
-        .update({ telegram_message_id: String(sent.message_id) })
-        .eq('id', post.id);
+      messageUpdates.push({ id: posts[i].id, telegram_message_id: String(sent.message_id) });
     }
-
-    postIds.push(post.id);
   }
 
+  // Batch-update telegram_message_id
+  await Promise.all(messageUpdates.map(u =>
+    sb.from('my_posts').update({ telegram_message_id: u.telegram_message_id }).eq('id', u.id)
+  ));
+
+  const postIds = posts.map(p => p.id);
   logInfo('telegram', `ツイート案を${postIds.length}件送信しました`, { accountId, postIds });
   return { generated: postIds.length, postIds };
 }
@@ -317,37 +320,42 @@ bodyにはそのまま投稿できる完成テキストだけを書いてくだ�
     return true;
   }
 
-  // Send new proposals
-  for (let i = 0; i < result.candidates.length; i++) {
-    const candidate = result.candidates[i];
-    if (!candidate.text || !candidate.text.trim()) continue;
+  // Batch-insert new proposals
+  const validCandidates = result.candidates.filter(c => c.text && c.text.trim());
+  const insertRows = validCandidates.map(candidate => ({
+    account_id: post.account_id,
+    text: candidate.text,
+    post_type: post.post_type,
+    target_tweet_id: post.target_tweet_id,
+    status: 'draft',
+    ai_provider: result.provider,
+    ai_model: result.model,
+    telegram_chat_id: String(chatId)
+  }));
 
-    const { data: newPost } = await sb.from('my_posts').insert({
-      account_id: post.account_id,
-      text: candidate.text,
-      post_type: post.post_type,
-      target_tweet_id: post.target_tweet_id,
-      status: 'draft',
-      ai_provider: result.provider,
-      ai_model: result.model,
-      telegram_chat_id: String(chatId)
-    }).select('id').single();
+  const { data: newPosts } = await sb.from('my_posts')
+    .insert(insertRows).select('id, text');
 
-    if (newPost) {
+  if (newPosts) {
+    const messageUpdates = [];
+    for (let i = 0; i < newPosts.length; i++) {
       const sent = await sendTweetProposal(chatId, {
-        postId: newPost.id,
-        text: candidate.text,
+        postId: newPosts[i].id,
+        text: newPosts[i].text,
         index: i + 1,
-        total: result.candidates.length,
+        total: newPosts.length,
         postType: post.post_type
       });
 
       if (sent) {
-        await sb.from('my_posts')
-          .update({ telegram_message_id: String(sent.message_id) })
-          .eq('id', newPost.id);
+        messageUpdates.push({ id: newPosts[i].id, telegram_message_id: String(sent.message_id) });
       }
     }
+
+    // Batch-update telegram_message_id
+    await Promise.all(messageUpdates.map(u =>
+      sb.from('my_posts').update({ telegram_message_id: u.telegram_message_id }).eq('id', u.id)
+    ));
   }
 
   return true;
