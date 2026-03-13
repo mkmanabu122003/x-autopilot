@@ -21,13 +21,15 @@ const mockSendNotification = jest.fn();
 const mockUpdateMessage = jest.fn();
 const mockInitTelegramBot = jest.fn();
 const mockGetTelegramChatId = jest.fn();
+const mockGetBot = jest.fn();
 
 jest.mock('../../server/services/telegram-bot', () => ({
   sendTweetProposal: mockSendTweetProposal,
   sendNotification: mockSendNotification,
   updateMessage: mockUpdateMessage,
   initTelegramBot: mockInitTelegramBot,
-  getTelegramChatId: mockGetTelegramChatId
+  getTelegramChatId: mockGetTelegramChatId,
+  getBot: mockGetBot
 }));
 
 // Mock AI provider
@@ -54,6 +56,7 @@ jest.mock('../../server/services/app-logger', () => ({
 const {
   triggerTweetProposal,
   approveTweet,
+  confirmApprove,
   rejectTweet,
   regenerateTweet,
   startEditSession,
@@ -136,11 +139,42 @@ describe('telegram-workflow', () => {
         total: 3,
         postType: 'new'
       }));
+
+      // Verify generation_theme and generation_batch_id are included in insert rows
+      const insertCall = insertChain.insert.mock.calls[0][0];
+      expect(insertCall[0]).toHaveProperty('generation_theme', 'AI技術');
+      expect(insertCall[0]).toHaveProperty('generation_batch_id');
+      expect(insertCall[0].generation_batch_id).toBeTruthy();
+      // All rows in same batch should share the same batch_id
+      expect(insertCall[1].generation_batch_id).toBe(insertCall[0].generation_batch_id);
     });
 
     test('should throw when chat ID is not configured', async () => {
       mockGetTelegramChatId.mockReturnValue(null);
       await expect(triggerTweetProposal('account-1')).rejects.toThrow('Telegram Chat ID が設定されていません');
+    });
+
+    test('should throw when DB insert fails', async () => {
+      mockGenerateTweets.mockResolvedValue({
+        provider: 'claude',
+        model: 'test',
+        candidates: [{ text: 'ツイート案' }]
+      });
+
+      const insertChain = {
+        insert: jest.fn().mockReturnThis(),
+        select: jest.fn().mockResolvedValue({
+          data: null,
+          error: { message: 'column "telegram_chat_id" does not exist' }
+        })
+      };
+
+      setupFromMock({
+        my_posts: () => insertChain
+      });
+
+      await expect(triggerTweetProposal('account-1', { theme: 'テスト' }))
+        .rejects.toThrow('下書き保存エラー');
     });
 
     test('should throw when no candidates are generated', async () => {
@@ -214,6 +248,66 @@ describe('telegram-workflow', () => {
         accountId: 'account-1',
         replyToId: 'target-1'
       });
+    });
+
+    test('should auto-reject sibling drafts in the same batch when approved', async () => {
+      const mockPost = {
+        id: 'post-1',
+        text: '承認されたツイート',
+        account_id: 'account-1',
+        post_type: 'new',
+        status: 'draft',
+        telegram_chat_id: '12345',
+        telegram_message_id: '100',
+        generation_batch_id: 'batch-123'
+      };
+
+      const siblings = [
+        { id: 'post-2', telegram_chat_id: '12345', telegram_message_id: '101', text: '却下される案2' },
+        { id: 'post-3', telegram_chat_id: '12345', telegram_message_id: '102', text: '却下される案3' }
+      ];
+
+      let callCount = 0;
+      setupFromMock({
+        my_posts: () => {
+          callCount++;
+          const chain = {};
+          chain.select = jest.fn().mockReturnValue(chain);
+          chain.update = jest.fn().mockReturnValue(chain);
+          chain.eq = jest.fn().mockReturnValue(chain);
+          chain.neq = jest.fn().mockReturnValue(chain);
+          // First call: get the post (single), second: sibling select
+          chain.single = jest.fn().mockResolvedValue({ data: mockPost, error: null });
+          // For sibling query (select without single), resolve with siblings data
+          chain.then = undefined;
+          // Override to return siblings when querying by batch
+          const originalEq = chain.eq;
+          chain.eq = jest.fn((...args) => {
+            // Return siblings for batch query
+            if (args[0] === 'generation_batch_id') {
+              return {
+                eq: jest.fn().mockReturnValue({
+                  neq: jest.fn().mockResolvedValue({ data: siblings })
+                })
+              };
+            }
+            return chain;
+          });
+          return chain;
+        }
+      });
+
+      mockPostTweet.mockResolvedValue({ data: { id: 'tweet-100' } });
+      mockUpdateMessage.mockResolvedValue({});
+
+      const result = await approveTweet('post-1');
+
+      expect(result.tweetId).toBe('tweet-100');
+      // Verify updateMessage was called for siblings (auto-reject messages)
+      expect(mockUpdateMessage).toHaveBeenCalledWith('12345', 101,
+        expect.stringContaining('自動却下'));
+      expect(mockUpdateMessage).toHaveBeenCalledWith('12345', 102,
+        expect.stringContaining('自動却下'));
     });
 
     test('should notify on post failure and mark as failed', async () => {
@@ -465,6 +559,56 @@ describe('telegram-workflow', () => {
 
       expect(mockUpdateMessage).toHaveBeenCalledWith('12345', 100,
         expect.stringContaining('却下済み'));
+    });
+
+    test('should route confirm_approve callback correctly', async () => {
+      const mockPost = {
+        id: 'post-1',
+        text: 'ファクトチェック警告付き',
+        account_id: 'account-1',
+        post_type: 'new',
+        status: 'draft',
+        telegram_chat_id: '12345',
+        telegram_message_id: '100'
+      };
+
+      setupFromMock({ my_posts: () => buildChain(mockPost) });
+
+      mockGetBot.mockReturnValue({
+        editMessageText: jest.fn().mockResolvedValue({})
+      });
+
+      // confirm_approve should NOT call postTweet (it shows confirmation instead)
+      await handleCallback({
+        data: 'confirm_approve:post-1',
+        message: { chat: { id: 12345 } }
+      });
+
+      expect(mockPostTweet).not.toHaveBeenCalled();
+    });
+
+    test('should route force_approve callback to approveTweet', async () => {
+      const mockPost = {
+        id: 'post-1',
+        text: 'テスト',
+        account_id: 'account-1',
+        post_type: 'new',
+        status: 'draft',
+        telegram_chat_id: '12345',
+        telegram_message_id: '100'
+      };
+
+      setupFromMock({ my_posts: () => buildChain(mockPost) });
+
+      mockPostTweet.mockResolvedValue({ data: { id: 'tweet-1' } });
+      mockUpdateMessage.mockResolvedValue({});
+
+      await handleCallback({
+        data: 'force_approve:post-1',
+        message: { chat: { id: 12345 } }
+      });
+
+      expect(mockPostTweet).toHaveBeenCalled();
     });
   });
 

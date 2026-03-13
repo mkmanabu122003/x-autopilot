@@ -483,6 +483,44 @@ describe('ai-provider', () => {
       expect(result[0].closingPattern).toBeNull();
       expect(result[0].expressions).toEqual([]);
     });
+
+    test('fact_check フィールドを抽出する（ok の場合）', () => {
+      const text = JSON.stringify({
+        variants: [{
+          label: '共感型',
+          body: 'テスト投稿',
+          char_count: 5,
+          fact_check: 'ok'
+        }]
+      });
+      const result = provider.parseCandidates(text);
+      expect(result[0].factCheck).toBe('ok');
+    });
+
+    test('fact_check フィールドを抽出する（指摘ありの場合）', () => {
+      const text = JSON.stringify({
+        variants: [{
+          label: '共感型',
+          body: 'テスト投稿',
+          char_count: 5,
+          fact_check: '「浅草の金龍寺」は架空の寺名。正しくは「浅草寺（金龍山）」'
+        }]
+      });
+      const result = provider.parseCandidates(text);
+      expect(result[0].factCheck).toBe('「浅草の金龍寺」は架空の寺名。正しくは「浅草寺（金龍山）」');
+    });
+
+    test('fact_check フィールドがない場合は null を返す', () => {
+      const text = JSON.stringify({
+        variants: [{
+          label: '共感型',
+          body: 'テスト投稿',
+          char_count: 5
+        }]
+      });
+      const result = provider.parseCandidates(text);
+      expect(result[0].factCheck).toBeNull();
+    });
   });
 
   describe('AIProvider.buildFeedbackRulesBlock', () => {

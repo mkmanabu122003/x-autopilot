@@ -132,15 +132,26 @@ function getTelegramChatId() {
 async function sendTweetProposal(chatId, proposal) {
   if (!bot) return null;
 
-  const { postId, text, index, total, postType } = proposal;
+  const { postId, text, index, total, postType, factCheck } = proposal;
   const typeLabel = postType === 'reply' ? 'リプライ' : postType === 'quote' ? '引用RT' : 'ツイート';
   const charCount = text.length;
 
-  const message = `📝 ${typeLabel}案 (${index}/${total})\n━━━━━━━━━━━━━━━━\n${text}\n━━━━━━━━━━━━━━━━\n📊 文字数: ${charCount}`;
+  const hasFactCheckWarning = factCheck && factCheck !== 'ok';
+  let factCheckLine = '';
+  if (hasFactCheckWarning) {
+    factCheckLine = `\n⚠️ 要確認: ${factCheck}`;
+  }
+
+  const message = `📝 ${typeLabel}案 (${index}/${total})\n━━━━━━━━━━━━━━━━\n${text}\n━━━━━━━━━━━━━━━━\n📊 文字数: ${charCount}${factCheckLine}`;
+
+  // When fact check has warnings, show "確認して投稿" instead of direct approve
+  const approveButton = hasFactCheckWarning
+    ? { text: '⚠️ 確認して投稿', callback_data: `confirm_approve:${postId}` }
+    : { text: '✅ これで投稿', callback_data: `approve:${postId}` };
 
   const keyboard = {
     inline_keyboard: [[
-      { text: '✅ これで投稿', callback_data: `approve:${postId}` },
+      approveButton,
       { text: '✏️ 編集依頼', callback_data: `edit:${postId}` }
     ], [
       { text: '🔄 再生成', callback_data: `regenerate:${postId}` },
