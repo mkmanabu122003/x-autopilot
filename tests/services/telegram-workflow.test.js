@@ -20,12 +20,14 @@ const mockSendTweetProposal = jest.fn();
 const mockSendNotification = jest.fn();
 const mockUpdateMessage = jest.fn();
 const mockInitTelegramBot = jest.fn();
+const mockGetTelegramChatId = jest.fn();
 
 jest.mock('../../server/services/telegram-bot', () => ({
   sendTweetProposal: mockSendTweetProposal,
   sendNotification: mockSendNotification,
   updateMessage: mockUpdateMessage,
-  initTelegramBot: mockInitTelegramBot
+  initTelegramBot: mockInitTelegramBot,
+  getTelegramChatId: mockGetTelegramChatId
 }));
 
 // Mock AI provider
@@ -63,15 +65,11 @@ const {
 describe('telegram-workflow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.TELEGRAM_CHAT_ID = '12345';
+    mockGetTelegramChatId.mockReturnValue('12345');
 
     // Reset mockChain methods
     Object.values(mockChain).forEach(fn => fn.mockReturnThis());
     mockChain.single.mockResolvedValue({ data: null, error: null });
-  });
-
-  afterEach(() => {
-    delete process.env.TELEGRAM_CHAT_ID;
   });
 
   function setupFromMock(handlers) {
@@ -138,9 +136,9 @@ describe('telegram-workflow', () => {
       }));
     });
 
-    test('should throw when TELEGRAM_CHAT_ID is not set', async () => {
-      delete process.env.TELEGRAM_CHAT_ID;
-      await expect(triggerTweetProposal('account-1')).rejects.toThrow('TELEGRAM_CHAT_ID が設定されていません');
+    test('should throw when chat ID is not configured', async () => {
+      mockGetTelegramChatId.mockReturnValue(null);
+      await expect(triggerTweetProposal('account-1')).rejects.toThrow('Telegram Chat ID が設定されていません');
     });
 
     test('should throw when no candidates are generated', async () => {

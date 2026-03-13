@@ -68,7 +68,7 @@ if (process.env.NODE_ENV === 'production') {
 (async () => {
   await initDatabase();
   startScheduler();
-  initTelegramWorkflow();
+  await initTelegramWorkflow();
 
   app.listen(PORT, () => {
     console.log(`X AutoPilot server running on port ${PORT}`);

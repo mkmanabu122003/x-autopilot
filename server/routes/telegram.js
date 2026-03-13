@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { triggerTweetProposal } = require('../services/telegram-workflow');
-const { getBot, sendNotification } = require('../services/telegram-bot');
+const { getBot, sendNotification, getTelegramChatId } = require('../services/telegram-bot');
 
 // POST /api/telegram/trigger - Manually trigger tweet proposal generation & send to Telegram
 router.post('/trigger', async (req, res) => {
@@ -47,8 +47,8 @@ router.get('/status', async (req, res) => {
 // POST /api/telegram/test - Send a test message
 router.post('/test', async (req, res) => {
   try {
-    const chatId = req.body.chatId || process.env.TELEGRAM_CHAT_ID;
-    if (!chatId) return res.status(400).json({ error: 'chatId or TELEGRAM_CHAT_ID is required' });
+    const chatId = req.body.chatId || getTelegramChatId();
+    if (!chatId) return res.status(400).json({ error: 'chatId が未指定です。settings テーブルに telegram_chat_id を登録してください。' });
 
     const sent = await sendNotification(chatId, '🤖 X AutoPilot テスト通知\n\nTelegram連携が正常に動作しています。');
     if (!sent) {

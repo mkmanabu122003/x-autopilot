@@ -7,9 +7,11 @@ jest.mock('../../server/services/telegram-workflow', () => ({
 // Mock telegram-bot
 const mockGetBot = jest.fn();
 const mockSendNotification = jest.fn();
+const mockGetTelegramChatId = jest.fn();
 jest.mock('../../server/services/telegram-bot', () => ({
   getBot: mockGetBot,
-  sendNotification: mockSendNotification
+  sendNotification: mockSendNotification,
+  getTelegramChatId: mockGetTelegramChatId
 }));
 
 const express = require('express');
@@ -63,11 +65,7 @@ describe('telegram routes', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.TELEGRAM_CHAT_ID = '12345';
-  });
-
-  afterEach(() => {
-    delete process.env.TELEGRAM_CHAT_ID;
+    mockGetTelegramChatId.mockReturnValue('12345');
   });
 
   describe('POST /api/telegram/trigger', () => {
@@ -145,7 +143,7 @@ describe('telegram routes', () => {
     });
 
     test('should return 400 when no chatId available', async () => {
-      delete process.env.TELEGRAM_CHAT_ID;
+      mockGetTelegramChatId.mockReturnValue(null);
       const res = await request('POST', '/api/telegram/test', {});
       expect(res.status).toBe(400);
     });

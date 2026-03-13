@@ -4,17 +4,52 @@ const { logError, logInfo } = require('./app-logger');
 let bot = null;
 let callbackHandler = null;
 let messageHandler = null;
+let telegramChatId = null;
+
+/**
+ * Load Telegram credentials from the settings table.
+ * Falls back to environment variables for backwards compatibility.
+ * @returns {{ token: string|null, chatId: string|null }}
+ */
+async function loadTelegramCredentials() {
+  try {
+    const { getDb } = require('../db/database');
+    const sb = getDb();
+    const { data: rows } = await sb.from('settings')
+      .select('key, value')
+      .in('key', ['telegram_bot_token', 'telegram_chat_id']);
+
+    const settings = {};
+    if (rows) {
+      for (const row of rows) {
+        settings[row.key] = row.value;
+      }
+    }
+
+    const token = settings.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || null;
+    const chatId = settings.telegram_chat_id || process.env.TELEGRAM_CHAT_ID || null;
+    return { token, chatId };
+  } catch (err) {
+    // DB not available yet, fall back to env vars
+    return {
+      token: process.env.TELEGRAM_BOT_TOKEN || null,
+      chatId: process.env.TELEGRAM_CHAT_ID || null
+    };
+  }
+}
 
 /**
  * Initialize the Telegram bot with polling mode.
- * Only starts if TELEGRAM_BOT_TOKEN is configured.
+ * Loads credentials from DB (settings table), falling back to env vars.
  * @param {object} handlers - { onCallback, onMessage }
- * @returns {TelegramBot|null}
+ * @returns {Promise<TelegramBot|null>}
  */
-function initTelegramBot(handlers = {}) {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
+async function initTelegramBot(handlers = {}) {
+  const { token, chatId } = await loadTelegramCredentials();
+  telegramChatId = chatId;
+
   if (!token) {
-    console.log('Telegram: TELEGRAM_BOT_TOKEN not set, skipping bot initialization');
+    console.log('Telegram: bot token not configured, skipping bot initialization');
     return null;
   }
 
@@ -68,9 +103,16 @@ function initTelegramBot(handlers = {}) {
  * Check if the chat ID is authorized.
  */
 function isAuthorizedChat(chatId) {
-  const allowed = process.env.TELEGRAM_CHAT_ID;
+  const allowed = telegramChatId || process.env.TELEGRAM_CHAT_ID;
   if (!allowed) return true; // If not configured, allow all
   return String(chatId) === String(allowed);
+}
+
+/**
+ * Get the configured Telegram chat ID.
+ */
+function getTelegramChatId() {
+  return telegramChatId || process.env.TELEGRAM_CHAT_ID || null;
 }
 
 /**
@@ -146,10 +188,12 @@ async function stopBot() {
 
 module.exports = {
   initTelegramBot,
+  loadTelegramCredentials,
   sendTweetProposal,
   sendNotification,
   updateMessage,
   getBot,
   stopBot,
-  isAuthorizedChat
+  isAuthorizedChat,
+  getTelegramChatId
 };

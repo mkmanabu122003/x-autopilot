@@ -17,6 +17,16 @@ jest.mock('node-telegram-bot-api', () => {
   }));
 });
 
+// Mock database for loadTelegramCredentials
+jest.mock('../../server/db/database', () => ({
+  getDb: jest.fn(() => ({
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      in: jest.fn().mockResolvedValue({ data: [] })
+    }))
+  }))
+}));
+
 // Mock app-logger
 jest.mock('../../server/services/app-logger', () => ({
   logError: jest.fn(),
@@ -28,12 +38,12 @@ const TelegramBot = require('node-telegram-bot-api');
 const telegramBot = require('../../server/services/telegram-bot');
 
 describe('telegram-bot', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     process.env.TELEGRAM_BOT_TOKEN = 'test-token';
     process.env.TELEGRAM_CHAT_ID = '12345';
     // Reset bot state by stopping any existing bot
-    telegramBot.stopBot().catch(() => {});
+    await telegramBot.stopBot().catch(() => {});
   });
 
   afterEach(() => {
@@ -42,8 +52,8 @@ describe('telegram-bot', () => {
   });
 
   describe('initTelegramBot', () => {
-    test('should initialize bot when token is set', () => {
-      const bot = telegramBot.initTelegramBot();
+    test('should initialize bot when token is set', async () => {
+      const bot = await telegramBot.initTelegramBot();
 
       expect(TelegramBot).toHaveBeenCalledWith('test-token', { polling: true });
       expect(bot).toBeTruthy();
@@ -52,33 +62,36 @@ describe('telegram-bot', () => {
       expect(mockOn).toHaveBeenCalledWith('polling_error', expect.any(Function));
     });
 
-    test('should return null when token is not set', () => {
+    test('should return null when token is not set', async () => {
       delete process.env.TELEGRAM_BOT_TOKEN;
-      const bot = telegramBot.initTelegramBot();
+      const bot = await telegramBot.initTelegramBot();
 
       expect(bot).toBeNull();
     });
   });
 
   describe('isAuthorizedChat', () => {
-    test('should authorize matching chat ID', () => {
+    test('should authorize matching chat ID after init', async () => {
+      await telegramBot.initTelegramBot();
       expect(telegramBot.isAuthorizedChat(12345)).toBe(true);
       expect(telegramBot.isAuthorizedChat('12345')).toBe(true);
     });
 
-    test('should reject non-matching chat ID', () => {
+    test('should reject non-matching chat ID', async () => {
+      await telegramBot.initTelegramBot();
       expect(telegramBot.isAuthorizedChat(99999)).toBe(false);
     });
 
-    test('should allow all when TELEGRAM_CHAT_ID is not set', () => {
+    test('should allow all when TELEGRAM_CHAT_ID is not set', async () => {
       delete process.env.TELEGRAM_CHAT_ID;
+      await telegramBot.initTelegramBot();
       expect(telegramBot.isAuthorizedChat(99999)).toBe(true);
     });
   });
 
   describe('sendTweetProposal', () => {
     test('should send message with inline keyboard', async () => {
-      telegramBot.initTelegramBot();
+      await telegramBot.initTelegramBot();
       mockSendMessage.mockResolvedValue({ message_id: 100 });
 
       const result = await telegramBot.sendTweetProposal('12345', {
@@ -119,7 +132,7 @@ describe('telegram-bot', () => {
     });
 
     test('should show correct type label for reply', async () => {
-      telegramBot.initTelegramBot();
+      await telegramBot.initTelegramBot();
       mockSendMessage.mockResolvedValue({ message_id: 101 });
 
       await telegramBot.sendTweetProposal('12345', {
@@ -138,7 +151,7 @@ describe('telegram-bot', () => {
     });
 
     test('should show correct type label for quote', async () => {
-      telegramBot.initTelegramBot();
+      await telegramBot.initTelegramBot();
       mockSendMessage.mockResolvedValue({ message_id: 102 });
 
       await telegramBot.sendTweetProposal('12345', {
@@ -159,7 +172,7 @@ describe('telegram-bot', () => {
 
   describe('sendNotification', () => {
     test('should send text message', async () => {
-      telegramBot.initTelegramBot();
+      await telegramBot.initTelegramBot();
       mockSendMessage.mockResolvedValue({ message_id: 200 });
 
       const result = await telegramBot.sendNotification('12345', 'テスト通知');
@@ -170,7 +183,7 @@ describe('telegram-bot', () => {
 
   describe('updateMessage', () => {
     test('should edit existing message', async () => {
-      telegramBot.initTelegramBot();
+      await telegramBot.initTelegramBot();
       mockEditMessageText.mockResolvedValue({});
 
       await telegramBot.updateMessage('12345', 100, '更新テキスト');
@@ -183,12 +196,35 @@ describe('telegram-bot', () => {
 
   describe('stopBot', () => {
     test('should stop polling', async () => {
-      telegramBot.initTelegramBot();
+      await telegramBot.initTelegramBot();
       mockStopPolling.mockResolvedValue();
 
       await telegramBot.stopBot();
       expect(mockStopPolling).toHaveBeenCalled();
       expect(telegramBot.getBot()).toBeNull();
+    });
+  });
+
+  describe('loadTelegramCredentials', () => {
+    test('should fall back to env vars when DB returns empty', async () => {
+      const result = await telegramBot.loadTelegramCredentials();
+      expect(result.token).toBe('test-token');
+      expect(result.chatId).toBe('12345');
+    });
+
+    test('should return null when no credentials available', async () => {
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      delete process.env.TELEGRAM_CHAT_ID;
+      const result = await telegramBot.loadTelegramCredentials();
+      expect(result.token).toBeNull();
+      expect(result.chatId).toBeNull();
+    });
+  });
+
+  describe('getTelegramChatId', () => {
+    test('should return chat ID after init', async () => {
+      await telegramBot.initTelegramBot();
+      expect(telegramBot.getTelegramChatId()).toBe('12345');
     });
   });
 });
