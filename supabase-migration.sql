@@ -402,3 +402,14 @@ CREATE INDEX IF NOT EXISTS idx_prompt_feedback_rules_account
   ON prompt_feedback_rules(account_id);
 CREATE INDEX IF NOT EXISTS idx_prompt_feedback_rules_enabled
   ON prompt_feedback_rules(account_id, enabled);
+
+-- ============================================
+-- Telegram workflow columns for my_posts
+-- ============================================
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS telegram_message_id TEXT;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS generation_theme TEXT;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS generation_batch_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_my_posts_generation_batch_id
+  ON my_posts(generation_batch_id);
