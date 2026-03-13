@@ -5,6 +5,7 @@ require('dotenv').config();
 
 const { initDatabase } = require('./db/database');
 const { startScheduler } = require('./services/scheduler');
+const { initTelegramWorkflow } = require('./services/telegram-workflow');
 
 const tweetsRouter = require('./routes/tweets');
 const competitorsRouter = require('./routes/competitors');
@@ -19,6 +20,7 @@ const growthRouter = require('./routes/growth');
 const cronRouter = require('./routes/cron');
 const logsRouter = require('./routes/logs');
 const improvementRouter = require('./routes/improvement');
+const telegramRouter = require('./routes/telegram');
 
 const basicAuth = require('./middleware/basicAuth');
 
@@ -43,6 +45,7 @@ app.use('/api/growth', growthRouter);
 app.use('/api/cron', cronRouter);
 app.use('/api/logs', logsRouter);
 app.use('/api/improvement', improvementRouter);
+app.use('/api/telegram', telegramRouter);
 
 // Global error handler for API routes - ensures JSON responses for all errors
 // Express identifies error handlers by having exactly 4 parameters (err, req, res, next)
@@ -65,6 +68,7 @@ if (process.env.NODE_ENV === 'production') {
 (async () => {
   await initDatabase();
   startScheduler();
+  await initTelegramWorkflow();
 
   app.listen(PORT, () => {
     console.log(`X AutoPilot server running on port ${PORT}`);

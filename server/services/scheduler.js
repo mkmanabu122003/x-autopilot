@@ -7,6 +7,7 @@ const { checkAndRunAutoPosts, isDeletedTweetError } = require('./auto-poster');
 const { refreshOwnPostMetrics, recordFollowerSnapshot } = require('./growth-analytics');
 const { generateImprovementInsights, autoAdjustSettings } = require('./tweet-improver');
 const { logError, logWarn, logInfo } = require('./app-logger');
+const { triggerTweetProposal } = require('./telegram-workflow');
 
 function startScheduler() {
   // Check for scheduled posts every minute
