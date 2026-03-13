@@ -137,29 +137,28 @@ describe('prompts', () => {
     expect(system).toContain('closing_pattern');
   });
 
-  test('tweet_generation に冒頭パターン O-A〜O-E が定義されている', () => {
+  test('tweet_generation に冒頭パターン O-A〜O-J が定義されている', () => {
     const system = prompts.tweet_generation.system;
-    expect(system).toContain('O-A');
-    expect(system).toContain('O-B');
-    expect(system).toContain('O-C');
-    expect(system).toContain('O-D');
-    expect(system).toContain('O-E');
+    const openingPatterns = ['O-A', 'O-B', 'O-C', 'O-D', 'O-E', 'O-F', 'O-G', 'O-H', 'O-I', 'O-J'];
+    for (const p of openingPatterns) {
+      expect(system).toContain(p);
+    }
   });
 
-  test('tweet_generation に展開パターン D-A〜D-D が定義されている', () => {
+  test('tweet_generation に展開パターン D-A〜D-H が定義されている', () => {
     const system = prompts.tweet_generation.system;
-    expect(system).toContain('D-A');
-    expect(system).toContain('D-B');
-    expect(system).toContain('D-C');
-    expect(system).toContain('D-D');
+    const devPatterns = ['D-A', 'D-B', 'D-C', 'D-D', 'D-E', 'D-F', 'D-G', 'D-H'];
+    for (const p of devPatterns) {
+      expect(system).toContain(p);
+    }
   });
 
-  test('tweet_generation に締めパターン C-A〜C-D が定義されている', () => {
+  test('tweet_generation に締めパターン C-A〜C-H が定義されている', () => {
     const system = prompts.tweet_generation.system;
-    expect(system).toContain('C-A');
-    expect(system).toContain('C-B');
-    expect(system).toContain('C-C');
-    expect(system).toContain('C-D');
+    const closingPatterns = ['C-A', 'C-B', 'C-C', 'C-D', 'C-E', 'C-F', 'C-G', 'C-H'];
+    for (const p of closingPatterns) {
+      expect(system).toContain(p);
+    }
   });
 
   test('tweet_generation のJSON出力にパターンコードフィールドが含まれる', () => {
@@ -168,6 +167,19 @@ describe('prompts', () => {
     expect(system).toContain('"development_pattern"');
     expect(system).toContain('"closing_pattern"');
     expect(system).toContain('"expressions"');
+  });
+
+  test('tweet_generation にファクトチェックルールが含まれる', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('ファクトチェック');
+    expect(system).toContain('fact_check');
+    expect(system).toContain('数字の整合性');
+    expect(system).toContain('地名・施設名');
+  });
+
+  test('tweet_generation のJSON出力にfact_checkフィールドが含まれる', () => {
+    const system = prompts.tweet_generation.system;
+    expect(system).toContain('"fact_check"');
   });
 
   test.each(['tweet_generation', 'reply_generation', 'quote_rt_generation'])(

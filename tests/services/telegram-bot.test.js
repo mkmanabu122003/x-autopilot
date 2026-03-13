@@ -150,6 +150,43 @@ describe('telegram-bot', () => {
       );
     });
 
+    test('should show fact check warning when factCheck has issues', async () => {
+      await telegramBot.initTelegramBot();
+      mockSendMessage.mockResolvedValue({ message_id: 103 });
+
+      await telegramBot.sendTweetProposal('12345', {
+        postId: 'post-4',
+        text: 'ファクトチェックテスト',
+        index: 1,
+        total: 1,
+        postType: 'new',
+        factCheck: '「浅草の金龍寺」は架空の寺名'
+      });
+
+      expect(mockSendMessage).toHaveBeenCalledWith(
+        '12345',
+        expect.stringContaining('要確認: 「浅草の金龍寺」は架空の寺名'),
+        expect.any(Object)
+      );
+    });
+
+    test('should not show fact check warning when factCheck is ok', async () => {
+      await telegramBot.initTelegramBot();
+      mockSendMessage.mockResolvedValue({ message_id: 104 });
+
+      await telegramBot.sendTweetProposal('12345', {
+        postId: 'post-5',
+        text: 'ファクトチェックOKテスト',
+        index: 1,
+        total: 1,
+        postType: 'new',
+        factCheck: 'ok'
+      });
+
+      const sentMessage = mockSendMessage.mock.calls[0][1];
+      expect(sentMessage).not.toContain('要確認');
+    });
+
     test('should show correct type label for quote', async () => {
       await telegramBot.initTelegramBot();
       mockSendMessage.mockResolvedValue({ message_id: 102 });

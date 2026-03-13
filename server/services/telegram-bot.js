@@ -132,11 +132,16 @@ function getTelegramChatId() {
 async function sendTweetProposal(chatId, proposal) {
   if (!bot) return null;
 
-  const { postId, text, index, total, postType } = proposal;
+  const { postId, text, index, total, postType, factCheck } = proposal;
   const typeLabel = postType === 'reply' ? 'リプライ' : postType === 'quote' ? '引用RT' : 'ツイート';
   const charCount = text.length;
 
-  const message = `📝 ${typeLabel}案 (${index}/${total})\n━━━━━━━━━━━━━━━━\n${text}\n━━━━━━━━━━━━━━━━\n📊 文字数: ${charCount}`;
+  let factCheckLine = '';
+  if (factCheck && factCheck !== 'ok') {
+    factCheckLine = `\n⚠️ 要確認: ${factCheck}`;
+  }
+
+  const message = `📝 ${typeLabel}案 (${index}/${total})\n━━━━━━━━━━━━━━━━\n${text}\n━━━━━━━━━━━━━━━━\n📊 文字数: ${charCount}${factCheckLine}`;
 
   const keyboard = {
     inline_keyboard: [[

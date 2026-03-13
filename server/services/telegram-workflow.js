@@ -66,7 +66,8 @@ async function triggerTweetProposal(accountId, options = {}) {
       text: posts[i].text,
       index: i + 1,
       total: posts.length,
-      postType
+      postType,
+      factCheck: validCandidates[i]?.factCheck || null
     });
 
     if (sent) {

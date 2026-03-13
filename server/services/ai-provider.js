@@ -294,7 +294,8 @@ class AIProvider {
           openingPattern: v.opening_pattern || null,
           developmentPattern: v.development_pattern || null,
           closingPattern: v.closing_pattern || null,
-          expressions: v.expressions || []
+          expressions: v.expressions || [],
+          factCheck: v.fact_check || null
         }));
       }
       return null;
