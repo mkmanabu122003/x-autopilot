@@ -5,6 +5,11 @@
 -- Add telegram tracking columns to my_posts
 ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS telegram_message_id TEXT;
 ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS generation_theme TEXT;
+ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS generation_batch_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_my_posts_generation_batch_id
+  ON my_posts(generation_batch_id);
 
 -- Telegram sessions for edit flow state management
 CREATE TABLE IF NOT EXISTS telegram_sessions (

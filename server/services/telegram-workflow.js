@@ -453,27 +453,33 @@ async function handleCallback(query) {
 
   const [action, postId] = data.split(':');
 
-  switch (action) {
-    case 'approve':
-      await approveTweet(postId);
-      break;
-    case 'confirm_approve':
-      await confirmApprove(postId, chatId);
-      break;
-    case 'force_approve':
-      await approveTweet(postId);
-      break;
-    case 'reject':
-      await rejectTweet(postId);
-      break;
-    case 'regenerate':
-      await regenerateTweet(postId);
-      break;
-    case 'edit':
-      await startEditSession(postId, chatId);
-      break;
-    default:
-      console.warn('Telegram: unknown callback action:', action);
+  try {
+    switch (action) {
+      case 'approve':
+        await approveTweet(postId);
+        break;
+      case 'confirm_approve':
+        await confirmApprove(postId, chatId);
+        break;
+      case 'force_approve':
+        await approveTweet(postId);
+        break;
+      case 'reject':
+        await rejectTweet(postId);
+        break;
+      case 'regenerate':
+        await regenerateTweet(postId);
+        break;
+      case 'edit':
+        await startEditSession(postId, chatId);
+        break;
+      default:
+        console.warn('Telegram: unknown callback action:', action);
+    }
+  } catch (err) {
+    logError('telegram', `コールバック処理エラー (${action})`, { postId, error: err.message });
+    await sendNotification(chatId, `❌ 操作に失敗しました\n\nアクション: ${action}\nエラー: ${err.message}`);
+    throw err;
   }
 }
 
