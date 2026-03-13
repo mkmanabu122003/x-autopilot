@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 
 const { initDatabase } = require('../server/db/database');
+const { initTelegramWorkflow } = require('../server/services/telegram-workflow');
 const tweetsRouter = require('../server/routes/tweets');
 const competitorsRouter = require('../server/routes/competitors');
 const analyticsRouter = require('../server/routes/analytics');
@@ -14,6 +15,8 @@ const autoPostRouter = require('../server/routes/auto-post');
 const growthRouter = require('../server/routes/growth');
 const cronRouter = require('../server/routes/cron');
 const logsRouter = require('../server/routes/logs');
+const improvementRouter = require('../server/routes/improvement');
+const telegramRouter = require('../server/routes/telegram');
 
 const basicAuth = require('../server/middleware/basicAuth');
 
@@ -36,6 +39,8 @@ app.use('/api/auto-post', autoPostRouter);
 app.use('/api/growth', growthRouter);
 app.use('/api/cron', cronRouter);
 app.use('/api/logs', logsRouter);
+app.use('/api/improvement', improvementRouter);
+app.use('/api/telegram', telegramRouter);
 
 // Global error handler for API routes - ensures JSON responses for all errors
 // Express identifies error handlers by having exactly 4 parameters (err, req, res, next)
@@ -49,7 +54,7 @@ app.use('/api', (err, req, res, next) => {
 // Initialize database (async)
 let dbInitialized = false;
 const initPromise = initDatabase()
-  .then(() => { dbInitialized = true; })
-  .catch(err => { console.error('Database initialization error:', err.message); });
+  .then(() => { dbInitialized = true; return initTelegramWorkflow(); })
+  .catch(err => { console.error('Initialization error:', err.message); });
 
 module.exports = app;
