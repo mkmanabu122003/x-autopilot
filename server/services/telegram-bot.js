@@ -183,9 +183,68 @@ async function stopBot() {
   }
 }
 
+/**
+ * Reload the bot with fresh credentials from the database.
+ * Stops the current bot instance, reloads credentials, and re-initializes.
+ * @returns {Promise<TelegramBot|null>}
+ */
+async function reloadBot() {
+  logInfo('telegram', 'Bot の認証情報を再読み込みします');
+  await stopBot();
+
+  const { token, chatId } = await loadTelegramCredentials();
+  telegramChatId = chatId;
+
+  if (!token) {
+    logInfo('telegram', 'Bot token が未設定のため、再初期化をスキップしました');
+    return null;
+  }
+
+  bot = new TelegramBot(token, { polling: true });
+
+  bot.on('callback_query', async (query) => {
+    try {
+      if (!isAuthorizedChat(query.message.chat.id)) {
+        await bot.answerCallbackQuery(query.id, { text: '権限がありません' });
+        return;
+      }
+      if (callbackHandler) {
+        await callbackHandler(query);
+      }
+      await bot.answerCallbackQuery(query.id);
+    } catch (err) {
+      logError('telegram', 'コールバック処理エラー', { error: err.message });
+      try {
+        await bot.answerCallbackQuery(query.id, { text: 'エラーが発生しました' });
+      } catch (e) {
+        // ignore
+      }
+    }
+  });
+
+  bot.on('message', async (msg) => {
+    try {
+      if (!isAuthorizedChat(msg.chat.id)) return;
+      if (messageHandler) {
+        await messageHandler(msg);
+      }
+    } catch (err) {
+      logError('telegram', 'メッセージ処理エラー', { error: err.message });
+    }
+  });
+
+  bot.on('polling_error', (err) => {
+    logError('telegram', 'ポーリングエラー', { error: err.message });
+  });
+
+  logInfo('telegram', 'Bot を再初期化しました');
+  return bot;
+}
+
 module.exports = {
   initTelegramBot,
   loadTelegramCredentials,
+  reloadBot,
   sendTweetProposal,
   sendNotification,
   updateMessage,

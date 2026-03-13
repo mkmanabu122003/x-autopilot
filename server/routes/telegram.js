@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const { triggerTweetProposal } = require('../services/telegram-workflow');
-const { getBot, sendNotification, getTelegramChatId } = require('../services/telegram-bot');
+const { getBot, sendNotification, getTelegramChatId, reloadBot } = require('../services/telegram-bot');
+const { getDb } = require('../db/database');
 
 // POST /api/telegram/trigger - Manually trigger tweet proposal generation & send to Telegram
 router.post('/trigger', async (req, res) => {
@@ -56,6 +57,55 @@ router.post('/test', async (req, res) => {
     }
 
     res.json({ success: true, messageId: sent.message_id });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// POST /api/telegram/reload - Reload bot with fresh credentials from DB
+router.post('/reload', async (req, res) => {
+  try {
+    const bot = await reloadBot();
+    if (bot) {
+      const me = await bot.getMe();
+      res.json({ success: true, bot: { id: me.id, username: me.username } });
+    } else {
+      res.json({ success: true, bot: null, message: 'Bot token が未設定です' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/telegram/settings - Save Telegram credentials and reload bot
+router.put('/settings', async (req, res) => {
+  try {
+    const { telegram_bot_token, telegram_chat_id } = req.body;
+    if (!telegram_bot_token && !telegram_chat_id) {
+      return res.status(400).json({ error: 'telegram_bot_token または telegram_chat_id を指定してください' });
+    }
+
+    const sb = getDb();
+    const rows = [];
+    if (telegram_bot_token !== undefined) {
+      rows.push({ key: 'telegram_bot_token', value: telegram_bot_token });
+    }
+    if (telegram_chat_id !== undefined) {
+      rows.push({ key: 'telegram_chat_id', value: String(telegram_chat_id) });
+    }
+
+    const { error } = await sb.from('settings').upsert(rows, { onConflict: 'key' });
+    if (error) throw error;
+
+    // Auto-reload bot with new credentials
+    const bot = await reloadBot();
+    const botInfo = bot ? await bot.getMe().catch(() => null) : null;
+
+    res.json({
+      success: true,
+      botReloaded: !!bot,
+      bot: botInfo ? { id: botInfo.id, username: botInfo.username } : null
+    });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
