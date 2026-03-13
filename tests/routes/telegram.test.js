@@ -206,14 +206,14 @@ describe('telegram routes', () => {
     });
   });
 
-  describe('PUT /api/telegram/settings', () => {
+  describe('POST /api/telegram/settings', () => {
     test('should save credentials and reload bot', async () => {
       const mockBot = {
         getMe: jest.fn().mockResolvedValue({ id: 123, username: 'test_bot' })
       };
       mockReloadBot.mockResolvedValue(mockBot);
 
-      const res = await request('PUT', '/api/telegram/settings', {
+      const res = await request('POST', '/api/telegram/settings', {
         telegram_bot_token: 'new-token',
         telegram_chat_id: '67890'
       });
@@ -237,7 +237,7 @@ describe('telegram routes', () => {
     test('should accept chat_id only', async () => {
       mockReloadBot.mockResolvedValue(null);
 
-      const res = await request('PUT', '/api/telegram/settings', {
+      const res = await request('POST', '/api/telegram/settings', {
         telegram_chat_id: '67890'
       });
 
@@ -250,7 +250,7 @@ describe('telegram routes', () => {
     });
 
     test('should return 400 when no credentials provided', async () => {
-      const res = await request('PUT', '/api/telegram/settings', {});
+      const res = await request('POST', '/api/telegram/settings', {});
       expect(res.status).toBe(400);
     });
 
@@ -259,7 +259,7 @@ describe('telegram routes', () => {
         throw new Error('ENCRYPTION_KEY environment variable is not set');
       });
 
-      const res = await request('PUT', '/api/telegram/settings', {
+      const res = await request('POST', '/api/telegram/settings', {
         telegram_bot_token: 'some-token'
       });
 

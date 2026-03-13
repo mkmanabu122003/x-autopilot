@@ -78,8 +78,8 @@ router.post('/reload', async (req, res) => {
   }
 });
 
-// PUT /api/telegram/settings - Save Telegram credentials and reload bot
-router.put('/settings', async (req, res) => {
+// POST /api/telegram/settings - Save Telegram credentials and reload bot
+router.post('/settings', async (req, res) => {
   try {
     const { telegram_bot_token, telegram_chat_id } = req.body;
     if (!telegram_bot_token && !telegram_chat_id) {

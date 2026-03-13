@@ -171,7 +171,7 @@ export default function Settings() {
       const body = {};
       if (telegramForm.bot_token) body.telegram_bot_token = telegramForm.bot_token;
       if (telegramForm.chat_id) body.telegram_chat_id = telegramForm.chat_id;
-      const result = await put('/telegram/settings', body);
+      const result = await post('/telegram/settings', body);
       setTelegramSaveResult({ success: true, message: '保存しました' + (result.bot ? ` (@${result.bot.username})` : '') });
       setTelegramForm({ bot_token: '', chat_id: '' });
       loadTelegramStatus();
