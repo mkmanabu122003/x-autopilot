@@ -89,7 +89,16 @@ router.put('/settings', async (req, res) => {
     const sb = getDb();
     const rows = [];
     if (telegram_bot_token !== undefined) {
-      rows.push({ key: 'telegram_bot_token', value: encrypt(telegram_bot_token) });
+      let tokenValue;
+      try {
+        tokenValue = encrypt(telegram_bot_token);
+      } catch (e) {
+        if (e.message.includes('ENCRYPTION_KEY')) {
+          return res.status(500).json({ error: 'ENCRYPTION_KEY 環境変数が設定されていません。サーバーの .env に ENCRYPTION_KEY を追加してください。' });
+        }
+        throw e;
+      }
+      rows.push({ key: 'telegram_bot_token', value: tokenValue });
     }
     if (telegram_chat_id !== undefined) {
       rows.push({ key: 'telegram_chat_id', value: String(telegram_chat_id) });
