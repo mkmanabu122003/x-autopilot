@@ -49,7 +49,7 @@ router.get('/status', async (req, res) => {
 // POST /api/telegram/test - Send a test message
 router.post('/test', async (req, res) => {
   try {
-    const chatId = req.body.chatId || getTelegramChatId();
+    const chatId = req.body.chatId || await getTelegramChatId();
     if (!chatId) return res.status(400).json({ error: 'chatId が未指定です。settings テーブルに telegram_chat_id を登録してください。' });
 
     const sent = await sendNotification(chatId, '🤖 X AutoPilot テスト通知\n\nTelegram連携が正常に動作しています。');

@@ -118,9 +118,29 @@ function isAuthorizedChat(chatId) {
 
 /**
  * Get the configured Telegram chat ID.
+ * Falls back to DB lookup if not yet loaded into memory.
  */
-function getTelegramChatId() {
-  return telegramChatId || process.env.TELEGRAM_CHAT_ID || null;
+async function getTelegramChatId() {
+  if (telegramChatId) return telegramChatId;
+  if (process.env.TELEGRAM_CHAT_ID) return process.env.TELEGRAM_CHAT_ID;
+
+  // Bot may not be initialized yet (e.g. cron-triggered auto-poster).
+  // Load from DB directly.
+  try {
+    const { getDb } = require('../db/database');
+    const sb = getDb();
+    const { data } = await sb.from('settings')
+      .select('value')
+      .eq('key', 'telegram_chat_id')
+      .single();
+    if (data?.value) {
+      telegramChatId = data.value;
+      return telegramChatId;
+    }
+  } catch (_) {
+    // ignore
+  }
+  return null;
 }
 
 /**

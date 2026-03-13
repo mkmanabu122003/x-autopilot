@@ -284,7 +284,7 @@ describe('telegram-bot', () => {
   describe('getTelegramChatId', () => {
     test('should return chat ID after init', async () => {
       await telegramBot.initTelegramBot();
-      expect(telegramBot.getTelegramChatId()).toBe('12345');
+      expect(await telegramBot.getTelegramChatId()).toBe('12345');
     });
   });
 
@@ -319,13 +319,13 @@ describe('telegram-bot', () => {
 
     test('should update chat ID after reload', async () => {
       await telegramBot.initTelegramBot();
-      expect(telegramBot.getTelegramChatId()).toBe('12345');
+      expect(await telegramBot.getTelegramChatId()).toBe('12345');
 
       mockStopPolling.mockResolvedValue();
       process.env.TELEGRAM_CHAT_ID = '99999';
 
       await telegramBot.reloadBot();
-      expect(telegramBot.getTelegramChatId()).toBe('99999');
+      expect(await telegramBot.getTelegramChatId()).toBe('99999');
     });
   });
 });
