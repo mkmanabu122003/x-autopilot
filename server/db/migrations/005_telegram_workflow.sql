@@ -10,7 +10,7 @@ ALTER TABLE my_posts ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT;
 CREATE TABLE IF NOT EXISTS telegram_sessions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   chat_id TEXT NOT NULL,
-  post_id UUID REFERENCES my_posts(id) ON DELETE CASCADE,
+  post_id INTEGER REFERENCES my_posts(id) ON DELETE CASCADE,
   state TEXT NOT NULL DEFAULT 'awaiting_feedback',
   created_at TIMESTAMPTZ DEFAULT NOW(),
   expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '30 minutes')
