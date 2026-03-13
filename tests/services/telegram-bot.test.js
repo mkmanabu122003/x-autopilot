@@ -227,4 +227,45 @@ describe('telegram-bot', () => {
       expect(telegramBot.getTelegramChatId()).toBe('12345');
     });
   });
+
+  describe('reloadBot', () => {
+    test('should stop existing bot and reinitialize with fresh credentials', async () => {
+      await telegramBot.initTelegramBot();
+      expect(telegramBot.getBot()).toBeTruthy();
+
+      mockStopPolling.mockResolvedValue();
+      jest.clearAllMocks();
+
+      const bot = await telegramBot.reloadBot();
+
+      expect(mockStopPolling).toHaveBeenCalled();
+      expect(TelegramBot).toHaveBeenCalledWith('test-token', { polling: true });
+      expect(bot).toBeTruthy();
+      expect(mockOn).toHaveBeenCalledWith('callback_query', expect.any(Function));
+      expect(mockOn).toHaveBeenCalledWith('message', expect.any(Function));
+      expect(mockOn).toHaveBeenCalledWith('polling_error', expect.any(Function));
+    });
+
+    test('should return null when token is not set', async () => {
+      await telegramBot.initTelegramBot();
+      mockStopPolling.mockResolvedValue();
+
+      delete process.env.TELEGRAM_BOT_TOKEN;
+      const bot = await telegramBot.reloadBot();
+
+      expect(bot).toBeNull();
+      expect(telegramBot.getBot()).toBeNull();
+    });
+
+    test('should update chat ID after reload', async () => {
+      await telegramBot.initTelegramBot();
+      expect(telegramBot.getTelegramChatId()).toBe('12345');
+
+      mockStopPolling.mockResolvedValue();
+      process.env.TELEGRAM_CHAT_ID = '99999';
+
+      await telegramBot.reloadBot();
+      expect(telegramBot.getTelegramChatId()).toBe('99999');
+    });
+  });
 });

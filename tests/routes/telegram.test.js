@@ -8,10 +8,29 @@ jest.mock('../../server/services/telegram-workflow', () => ({
 const mockGetBot = jest.fn();
 const mockSendNotification = jest.fn();
 const mockGetTelegramChatId = jest.fn();
+const mockReloadBot = jest.fn();
 jest.mock('../../server/services/telegram-bot', () => ({
   getBot: mockGetBot,
   sendNotification: mockSendNotification,
-  getTelegramChatId: mockGetTelegramChatId
+  getTelegramChatId: mockGetTelegramChatId,
+  reloadBot: mockReloadBot
+}));
+
+// Mock database
+const mockUpsert = jest.fn().mockResolvedValue({ error: null });
+const mockFrom = jest.fn(() => ({
+  upsert: mockUpsert
+}));
+jest.mock('../../server/db/database', () => ({
+  getDb: jest.fn(() => ({
+    from: mockFrom
+  }))
+}));
+
+// Mock crypto
+const mockEncrypt = jest.fn((v) => `encrypted:${v}`);
+jest.mock('../../server/utils/crypto', () => ({
+  encrypt: mockEncrypt
 }));
 
 const express = require('express');
@@ -152,6 +171,87 @@ describe('telegram routes', () => {
       mockSendNotification.mockResolvedValue(null);
       const res = await request('POST', '/api/telegram/test', {});
       expect(res.status).toBe(500);
+    });
+  });
+
+  describe('POST /api/telegram/reload', () => {
+    test('should reload bot and return bot info', async () => {
+      const mockBot = {
+        getMe: jest.fn().mockResolvedValue({ id: 123, username: 'test_bot' })
+      };
+      mockReloadBot.mockResolvedValue(mockBot);
+
+      const res = await request('POST', '/api/telegram/reload', {});
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.bot.username).toBe('test_bot');
+      expect(mockReloadBot).toHaveBeenCalled();
+    });
+
+    test('should handle when bot token is not set', async () => {
+      mockReloadBot.mockResolvedValue(null);
+
+      const res = await request('POST', '/api/telegram/reload', {});
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.bot).toBeNull();
+    });
+
+    test('should return 500 on error', async () => {
+      mockReloadBot.mockRejectedValue(new Error('Reload failed'));
+
+      const res = await request('POST', '/api/telegram/reload', {});
+      expect(res.status).toBe(500);
+      expect(res.body.error).toBe('Reload failed');
+    });
+  });
+
+  describe('PUT /api/telegram/settings', () => {
+    test('should save credentials and reload bot', async () => {
+      const mockBot = {
+        getMe: jest.fn().mockResolvedValue({ id: 123, username: 'test_bot' })
+      };
+      mockReloadBot.mockResolvedValue(mockBot);
+
+      const res = await request('PUT', '/api/telegram/settings', {
+        telegram_bot_token: 'new-token',
+        telegram_chat_id: '67890'
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.botReloaded).toBe(true);
+      expect(res.body.bot.username).toBe('test_bot');
+      expect(mockFrom).toHaveBeenCalledWith('settings');
+      expect(mockEncrypt).toHaveBeenCalledWith('new-token');
+      expect(mockUpsert).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { key: 'telegram_bot_token', value: 'encrypted:new-token' },
+          { key: 'telegram_chat_id', value: '67890' }
+        ]),
+        { onConflict: 'key' }
+      );
+      expect(mockReloadBot).toHaveBeenCalled();
+    });
+
+    test('should accept chat_id only', async () => {
+      mockReloadBot.mockResolvedValue(null);
+
+      const res = await request('PUT', '/api/telegram/settings', {
+        telegram_chat_id: '67890'
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(mockUpsert).toHaveBeenCalledWith(
+        [{ key: 'telegram_chat_id', value: '67890' }],
+        { onConflict: 'key' }
+      );
+    });
+
+    test('should return 400 when no credentials provided', async () => {
+      const res = await request('PUT', '/api/telegram/settings', {});
+      expect(res.status).toBe(400);
     });
   });
 });
