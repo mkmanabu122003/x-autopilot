@@ -104,33 +104,39 @@ class AIProvider {
   async getSystemPrompt(options = {}) {
     const sb = getDb();
 
+    // Fetch feedback rules in parallel with prompt resolution (always needed)
+    const feedbackPromise = this.buildFeedbackRulesBlock(options.accountId);
+
     // Check for custom prompt by task type first
     if (options.taskType) {
-      const { data: custom } = await sb.from('custom_prompts')
-        .select('system_prompt')
-        .eq('task_type', options.taskType)
-        .eq('is_custom', true)
-        .single();
+      const [{ data: custom }, feedbackBlock] = await Promise.all([
+        sb.from('custom_prompts')
+          .select('system_prompt')
+          .eq('task_type', options.taskType)
+          .eq('is_custom', true)
+          .single(),
+        feedbackPromise
+      ]);
       if (custom && custom.system_prompt) {
-        const feedbackBlock = await this.buildFeedbackRulesBlock(options.accountId);
         return feedbackBlock ? `${custom.system_prompt}\n\n${feedbackBlock}` : custom.system_prompt;
+      }
+
+      // Check for task-specific default prompt
+      if (defaultPrompts[options.taskType]) {
+        let prompt = defaultPrompts[options.taskType].system;
+        return feedbackBlock ? `${prompt}\n\n${feedbackBlock}` : prompt;
       }
     }
 
-    // Check for task-specific default prompt
-    if (options.taskType && defaultPrompts[options.taskType]) {
-      let prompt = defaultPrompts[options.taskType].system;
-      const feedbackBlock = await this.buildFeedbackRulesBlock(options.accountId);
-      return feedbackBlock ? `${prompt}\n\n${feedbackBlock}` : prompt;
-    }
-
     // Fall back to the global system prompt from settings
-    const { data } = await sb.from('settings').select('value').eq('key', 'system_prompt').single();
+    const [{ data }, feedbackBlock] = await Promise.all([
+      sb.from('settings').select('value').eq('key', 'system_prompt').single(),
+      feedbackPromise
+    ]);
     let prompt = data ? data.value : '';
     prompt = prompt.replace('{postType}', options.postType || '新規ツイート');
     prompt = prompt.replace('{userInput}', options.theme || '');
     prompt = prompt.replace('{competitorContext}', options.competitorContext || '');
-    const feedbackBlock = await this.buildFeedbackRulesBlock(options.accountId);
     return feedbackBlock ? `${prompt}\n\n${feedbackBlock}` : prompt;
   }
 
@@ -361,8 +367,17 @@ class ClaudeProvider extends AIProvider {
   async generateTweets(theme, options = {}) {
     if (!process.env.CLAUDE_API_KEY) throw new Error('CLAUDE_API_KEY environment variable is not set');
 
-    // Check budget
-    const costSettings = await this.getCostSettings();
+    // Determine task type for model selection
+    const taskType = options.taskType || this.inferTaskType(options.postType);
+
+    // Fetch all pre-generation data in parallel (all independent DB reads)
+    const [costSettings, taskSettings, systemPrompt] = await Promise.all([
+      this.getCostSettings(),
+      this.getTaskModelSettings(taskType, 'claude'),
+      this.getSystemPrompt({ ...options, theme, taskType })
+    ]);
+
+    // Check budget (uses costSettings from parallel fetch)
     if (costSettings.budget_pause_100) {
       const budgetStatus = await checkBudgetStatus();
       if (budgetStatus.shouldPause) {
@@ -370,16 +385,9 @@ class ClaudeProvider extends AIProvider {
       }
     }
 
-    // Determine task type for model selection
-    const taskType = options.taskType || this.inferTaskType(options.postType);
-
-    // Get task-specific model settings
-    const taskSettings = await this.getTaskModelSettings(taskType, 'claude');
     const model = options.model || taskSettings.model || 'claude-sonnet-4-20250514';
     const effort = options.effort || taskSettings.effort;
     const maxTokens = options.maxTokens || taskSettings.maxTokens || 1024;
-
-    const systemPrompt = await this.getSystemPrompt({ ...options, theme, taskType });
     const userPrompt = options.customPrompt || `テーマ「${theme}」でツイートを3パターン作成してください。`;
 
     // Build request body
@@ -532,8 +540,16 @@ class GeminiProvider extends AIProvider {
   async generateTweets(theme, options = {}) {
     if (!process.env.GEMINI_API_KEY) throw new Error('GEMINI_API_KEY environment variable is not set');
 
-    // Check budget
-    const costSettings = await this.getCostSettings();
+    const taskType = options.taskType || this.inferTaskType(options.postType);
+
+    // Fetch all pre-generation data in parallel (all independent DB reads)
+    const [costSettings, taskSettings, systemPrompt] = await Promise.all([
+      this.getCostSettings(),
+      this.getTaskModelSettings(taskType, 'gemini'),
+      this.getSystemPrompt({ ...options, theme, taskType })
+    ]);
+
+    // Check budget (uses costSettings from parallel fetch)
     if (costSettings.budget_pause_100) {
       const budgetStatus = await checkBudgetStatus();
       if (budgetStatus.shouldPause) {
@@ -541,12 +557,8 @@ class GeminiProvider extends AIProvider {
       }
     }
 
-    const taskType = options.taskType || this.inferTaskType(options.postType);
-    const taskSettings = await this.getTaskModelSettings(taskType, 'gemini');
     const model = options.model || taskSettings.model || 'gemini-2.0-flash';
     const maxTokens = options.maxTokens || taskSettings.maxTokens || 1024;
-
-    const systemPrompt = await this.getSystemPrompt({ ...options, theme, taskType });
     const userPrompt = options.customPrompt || `テーマ「${theme}」でツイートを3パターン作成してください。`;
     const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 
